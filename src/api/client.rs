@@ -52,9 +52,11 @@ impl EmbyClient {
             return Err(anyhow::anyhow!("请求失败 ({}): {}", status, text));
         }
 
-        resp.json()
-            .await
-            .map_err(|e| anyhow::anyhow!("解析响应失败: {}", e))
+        let text = resp.text().await
+            .map_err(|e| anyhow::anyhow!("读取响应体失败: {}", e))?;
+        let preview: String = text.chars().take(500).collect();
+        serde_json::from_str(&text)
+            .map_err(|e| anyhow::anyhow!("解析响应失败: {}\n原始响应(前500字符): {}", e, preview))
     }
 
     pub async fn list_views(&self) -> anyhow::Result<Vec<View>> {
