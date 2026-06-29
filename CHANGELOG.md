@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.0.2 (2025-06-29)
+
+### 新增功能
+
+- **代理支持**：`proxy set <URL>` 设置 HTTP/SOCKS5 代理，`proxy remove` 清除，地址持久化到 SQLite
+- **系列逐级下载**：`get <系列ID>` 自动下载所有季的所有剧集；`get <季ID>` 下载该季所有剧集
+- **结果类型标签**：搜索结果显示 `[电影]`、`[剧集]`、`[系列]`、`[季]` 等中文类型标识
+
+### Bug 修复
+
+- **断点续传误判**：未下载完成的文件中断后重新下载被跳过的问题，改为比较文件大小
+- **Brotli 压缩支持**：部分 Emby 服务器（通过 FRP 代理）返回 `Content-Encoding: br`，reqwest 未启用 brotli 导致解析为二进制乱码
+
+### 依赖升级
+
+- `rusqlite` 0.31 → 0.40（bundled SQLite）
+- `aes-gcm` 0.10 → 0.11（AEAD 0.6 API 适配）
+- `getrandom` 0.2 → 0.4（`getrandom()` → `fill()`）
+
+### 工程改进
+
+- 升级 Rust edition 2024
+- 添加 `CHANGELOG.md` 版本管理
+- GitHub Actions Release 增加 `contents: write` 权限和 changelog 分段提取
+- 认证改为标准输入读取，不再依赖 `/dev/tty`，支持非交互式环境
+
 ## v0.0.1 (2025-06-29)
 
 ### 初始功能
