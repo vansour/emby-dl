@@ -97,8 +97,15 @@ jobs:
           Compress-Archive -Path "${BIN_NAME}.exe" -DestinationPath "${ARCHIVE_NAME}"
           echo "archive=${ARCHIVE_NAME}" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      - name: Extract changelog for this version
+        shell: bash
+        run: |
+          awk -v tag="${{ github.ref_name }}" \
+            '/^## /{found=0} $0=="## "tag{found=1} found' \
+            CHANGELOG.md > release_body.md
+
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
-          body_path: CHANGELOG.md
+          body_path: release_body.md
           files: ${{ env.archive }}
