@@ -113,6 +113,7 @@ async fn download_single(
         &stream_url,
         &dest,
         source.size.map(|s| s as u64),
+        &client.auth.access_token,
     )
     .await?;
 

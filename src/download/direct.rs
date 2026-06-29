@@ -25,6 +25,7 @@ pub async fn download_file(
     url: &str,
     path: &Path,
     total_size: Option<u64>,
+    token: &str,
 ) -> anyhow::Result<()> {
     let filename = path
         .file_name()
@@ -38,6 +39,11 @@ pub async fn download_file(
     };
 
     let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        "X-Emby-Token",
+        reqwest::header::HeaderValue::from_str(token)
+            .map_err(|e| anyhow::anyhow!("无效的 access token: {}", e))?,
+    );
     if existing_size > 0 {
         let range = format!("bytes={}-", existing_size);
         headers.insert(
@@ -58,8 +64,19 @@ pub async fn download_file(
         return Err(anyhow::anyhow!("下载失败: HTTP {}", resp.status()));
     }
 
+    let content_type = resp.headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if content_type.starts_with("text/html") {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        let preview: String = body.chars().take(300).collect();
+        anyhow::bail!("服务器返回 HTML (HTTP {}) 而非视频文件: {}", status, preview);
+    }
+
     let content_length = resp.content_length();
-    let final_total = total_size.or(content_length);
+    let final_total = content_length.or(total_size);
 
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
@@ -144,7 +161,7 @@ mod tests {
         tokio::fs::create_dir_all(&dir).await.unwrap();
         let path = dir.join("output.bin");
 
-        download_file(&client, &url, &path, Some(content.len() as u64))
+        download_file(&client, &url, &path, Some(content.len() as u64), "")
             .await
             .unwrap();
 
@@ -165,7 +182,7 @@ mod tests {
         tokio::fs::create_dir_all(&dir).await.unwrap();
         let path = dir.join("output.bin");
 
-        download_file(&client, &url, &path, None).await.unwrap();
+        download_file(&client, &url, &path, None, "").await.unwrap();
 
         let result = tokio::fs::read(&path).await.unwrap();
         assert_eq!(result, content);
