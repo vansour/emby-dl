@@ -11,18 +11,15 @@ use serde::de::DeserializeOwned;
 pub struct EmbyClient {
     pub http: reqwest::Client,
     pub auth: AuthInfo,
+    headers: reqwest::header::HeaderMap,
 }
 
 impl EmbyClient {
-    pub fn new(http: reqwest::Client, auth: AuthInfo) -> Self {
-        Self { http, auth }
-    }
-
-    fn headers(&self) -> anyhow::Result<reqwest::header::HeaderMap> {
+    pub fn new(http: reqwest::Client, auth: AuthInfo) -> anyhow::Result<Self> {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             "X-Emby-Token",
-            reqwest::header::HeaderValue::from_str(&self.auth.access_token)
+            reqwest::header::HeaderValue::from_str(&auth.access_token)
                 .map_err(|e| anyhow::anyhow!("无效的 access token: {}", e))?,
         );
         headers.insert(
@@ -37,7 +34,11 @@ impl EmbyClient {
             "X-Emby-Device-Name",
             reqwest::header::HeaderValue::from_static("CLI"),
         );
-        Ok(headers)
+        Ok(Self { http, auth, headers })
+    }
+
+    fn headers(&self) -> &reqwest::header::HeaderMap {
+        &self.headers
     }
 
     pub async fn get_json<T: DeserializeOwned>(
@@ -52,17 +53,10 @@ impl EmbyClient {
         let resp = self
             .http
             .get(url)
-            .headers(self.headers()?)
+            .headers(self.headers().clone())
             .send()
             .await
             .map_err(|e| anyhow::anyhow!("请求失败: {}", e))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await
-                .unwrap_or_else(|e| format!("(读取错误响应失败: {})", e));
-            return Err(anyhow::anyhow!("请求失败 ({}): {}", status, text));
-        }
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -87,6 +81,7 @@ impl EmbyClient {
         query: &str,
         parent_id: Option<&str>,
         limit: i32,
+        item_type: Option<&str>,
     ) -> anyhow::Result<Vec<EmbyItem>> {
         let limit_str = limit.to_string();
         let mut all_params: Vec<(&str, &str)> = vec![
@@ -96,6 +91,9 @@ impl EmbyClient {
         ];
         if let Some(pid) = parent_id {
             all_params.push(("ParentId", pid));
+        }
+        if let Some(itype) = item_type {
+            all_params.push(("IncludeItemTypes", itype));
         }
 
         let path = ITEMS_PATH.replace("{}", &self.auth.user_id);
@@ -161,6 +159,7 @@ mod tests {
                 username: "test".into(),
             },
         )
+        .unwrap()
     }
 
     #[test]
@@ -173,7 +172,7 @@ mod tests {
     #[test]
     fn headers_contains_token() {
         let client = test_client();
-        let headers = client.headers().unwrap();
+        let headers = client.headers();
         assert_eq!(
             headers.get("X-Emby-Token").unwrap().to_str().unwrap(),
             "test_token"
@@ -188,7 +187,7 @@ mod tests {
             server_url: "https://srv".into(),
             username: "usr".into(),
         };
-        let client = EmbyClient::new(reqwest::Client::new(), info);
+        let client = EmbyClient::new(reqwest::Client::new(), info).unwrap();
         assert_eq!(client.auth.access_token, "tok");
         assert_eq!(client.auth.server_url, "https://srv");
     }

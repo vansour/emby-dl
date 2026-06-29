@@ -3,12 +3,15 @@ pub mod direct;
 use std::path::PathBuf;
 
 use crate::api::client::EmbyClient;
+use tracing::{error, info};
 use crate::api::items::{EmbyItem, MediaSourceInfo};
 use crate::utils::filename;
 
 pub struct DownloadOptions {
     pub output_dir: PathBuf,
     pub overwrite: bool,
+    pub dry_run: bool,
+    pub no_resume: bool,
 }
 
 /// 从 MediaSource 中提取实际容器格式，默认 mkv
@@ -42,11 +45,11 @@ pub async fn download_item(
                 let series_name = season.series_name.as_deref().unwrap_or(&item.name);
                 let episodes = match client.get_child_items(&season.id, "Episode").await {
                     Ok(v) => v,
-                    Err(e) => { eprintln!("获取季剧集失败: {}", e); continue; }
+                    Err(e) => { error!("获取季剧集失败: {}", e); continue; }
                 };
                 for ep in &episodes {
                     if let Err(e) = download_single(client, ep, Some(series_name), opts).await {
-                        eprintln!("下载失败 [{}]: {}", ep.name, e);
+                        error!("下载失败 [{}]: {}", ep.name, e);
                     }
                 }
             }
@@ -57,7 +60,7 @@ pub async fn download_item(
             let episodes = client.get_child_items(&item.id, "Episode").await?;
             for ep in &episodes {
                 if let Err(e) = download_single(client, ep, series_name, opts).await {
-                    eprintln!("下载失败 [{}]: {}", ep.name, e);
+                    error!("下载失败 [{}]: {}", ep.name, e);
                 }
             }
             Ok(())
@@ -92,14 +95,17 @@ async fn download_single(
     };
 
     if dest.exists() {
-        if opts.overwrite {
+        if opts.overwrite || opts.no_resume {
             tokio::fs::remove_file(&dest).await?;
         } else if let Some(expected) = source.size {
             let actual = tokio::fs::metadata(&dest).await?.len();
             if actual == expected as u64 {
-                eprintln!("跳过已存在的文件: {}", filename);
+                info!("跳过已存在的文件: {}", filename);
                 return Ok(());
             }
+            anyhow::bail!("文件已存在且大小不匹配: {}", filename);
+        } else {
+            anyhow::bail!("文件已存在: {}", filename);
         }
     }
 
@@ -107,7 +113,7 @@ async fn download_single(
         tokio::fs::create_dir_all(parent).await?;
     }
 
-    eprintln!("下载: {}", filename);
+    info!("下载: {}", filename);
     direct::download_file(
         &client.http,
         &stream_url,

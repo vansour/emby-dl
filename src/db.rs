@@ -85,7 +85,7 @@ impl AuthDb {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn save_credentials(
         &self,
         server_url: &str,
@@ -185,27 +185,17 @@ impl AuthDb {
 }
 
 fn db_path() -> PathBuf {
-    if let Some(home) = std::env::var_os("HOME") {
-        let mut path = PathBuf::from(home);
-        path.push(".config");
-        path.push("emby-dl");
-        path.push("auth.db");
-        path
-    } else {
-        PathBuf::from("./emby-dl.db")
-    }
+    let mut path = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+    path.push("emby-dl");
+    path.push("auth.db");
+    path
 }
 
 fn key_path() -> PathBuf {
-    if let Some(home) = std::env::var_os("HOME") {
-        let mut path = PathBuf::from(home);
-        path.push(".config");
-        path.push("emby-dl");
-        path.push("key");
-        path
-    } else {
-        PathBuf::from("./emby-dl.key")
-    }
+    let mut path = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+    path.push("emby-dl");
+    path.push("key");
+    path
 }
 
 fn load_or_create_key() -> anyhow::Result<[u8; 32]> {

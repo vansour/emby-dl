@@ -3,9 +3,11 @@ mod db;
 mod download;
 mod utils;
 
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use tracing::{error, info};
 use db::AuthDb;
 use download::DownloadOptions;
 
@@ -15,6 +17,18 @@ struct Cli {
     /// 下载输出目录
     #[arg(short = 'O', long, default_value = ".")]
     output: PathBuf,
+
+    /// 覆盖已存在的文件
+    #[arg(short, long)]
+    overwrite: bool,
+
+    /// 仅列出信息，不实际下载
+    #[arg(short = 'n', long)]
+    dry_run: bool,
+
+    /// 禁用断点续传
+    #[arg(long)]
+    no_resume: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -48,6 +62,9 @@ enum Commands {
         /// 所属媒体库 ID（可选）
         #[arg(long)]
         library: Option<String>,
+        /// 媒体类型过滤，如 Movie、Episode、Series
+        #[arg(long)]
+        item_type: Option<String>,
     },
     /// 按 ID 下载单个媒体
     Get {
@@ -64,6 +81,9 @@ enum Commands {
         /// 所属媒体库 ID（可选）
         #[arg(long)]
         library: Option<String>,
+        /// 媒体类型过滤，如 Movie、Episode、Series
+        #[arg(long)]
+        item_type: Option<String>,
     },
     /// 输出视频下载直链
     Link {
@@ -89,64 +109,77 @@ enum ProxyAction {
 }
 
 async fn run() -> anyhow::Result<()> {
-    use std::io::{self, Write};
-
     let cli = Cli::parse();
     let db = AuthDb::open()?;
 
-    // Proxy subcommand: configure proxy, no auth needed
-    if let Some(Commands::Proxy { action }) = &cli.command {
-        match action {
-            ProxyAction::Set { url } => {
-                db.save_proxy(url)?;
-                eprintln!("代理已保存: {}", url);
+    let command = match &cli.command {
+        Some(cmd) => cmd,
+        None => return Ok(()),
+    };
+
+    match command {
+        Commands::Proxy { action } => {
+            match action {
+                ProxyAction::Set { url } => {
+                    db.save_proxy(url)?;
+                    info!("代理已保存: {}", url);
+                }
+                ProxyAction::Remove => {
+                    db.remove_proxy()?;
+                    info!("代理已清除");
+                }
             }
-            ProxyAction::Remove => {
-                db.remove_proxy()?;
-                eprintln!("代理已清除");
-            }
+            return Ok(());
         }
-        return Ok(());
+        Commands::Auth => {
+            print!("服务器网址: ");
+            io::stdout().flush()?;
+            let mut url = String::new();
+            io::stdin().read_line(&mut url)?;
+            let url = url.trim().to_string();
+
+            print!("用户名: ");
+            io::stdout().flush()?;
+            let mut username = String::new();
+            io::stdin().read_line(&mut username)?;
+            let username = username.trim().to_string();
+
+            print!("密码: ");
+            io::stdout().flush()?;
+            let password = rpassword::read_password()?;
+            let password = password.trim().to_string();
+
+            let mut http_builder = reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(30))
+                .timeout(std::time::Duration::from_secs(3600));
+            if let Some(proxy_url) = db.load_proxy()? {
+                let proxy = reqwest::Proxy::all(&proxy_url)
+                    .map_err(|e| anyhow::anyhow!("无效的代理地址: {}", e))?;
+                http_builder = http_builder.proxy(proxy);
+            }
+            let http = http_builder.build()?;
+
+            let auth_info = api::auth::authenticate(&http, &url, &username, &password).await?;
+            db.save_auth(&url, &auth_info.username, &auth_info.access_token, &auth_info.user_id)?;
+            info!("认证成功，已保存到数据库 (用户: {})", auth_info.username);
+            return Ok(());
+        }
+        _ => {}
     }
 
     let mut http_builder = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(30));
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(3600));
     if let Some(proxy_url) = db.load_proxy()? {
         let proxy = reqwest::Proxy::all(&proxy_url)
             .map_err(|e| anyhow::anyhow!("无效的代理地址: {}", e))?;
         http_builder = http_builder.proxy(proxy);
-        eprintln!("使用代理: {}", proxy_url);
+        info!("使用代理: {}", proxy_url);
     }
     let http = http_builder.build()?;
 
-    // Auth subcommand: interactive setup, no existing auth needed
-    if let Some(Commands::Auth) = &cli.command {
-        print!("服务器网址: ");
-        io::stdout().flush()?;
-        let mut url = String::new();
-        io::stdin().read_line(&mut url)?;
-        let url = url.trim().to_string();
-
-        print!("用户名: ");
-        io::stdout().flush()?;
-        let mut username = String::new();
-        io::stdin().read_line(&mut username)?;
-        let username = username.trim().to_string();
-
-        print!("密码: ");
-        io::stdout().flush()?;
-        let mut password = String::new();
-        io::stdin().read_line(&mut password)?;
-        let password = password.trim().to_string();
-
-        let auth_info = api::auth::authenticate(&http, &url, &username, &password).await?;
-        db.save_auth(&url, &auth_info.username, &auth_info.access_token, &auth_info.user_id)?;
-        eprintln!("认证成功，已保存到数据库 (用户: {})", auth_info.username);
-        return Ok(());
-    }
-
     let auth_info = if let Some(stored) = db.load_auth()? {
-        eprintln!("使用已保存的认证信息 (用户: {})", stored.username);
+        info!("使用已保存的认证信息 (用户: {})", stored.username);
         api::auth::AuthInfo {
             access_token: stored.access_token,
             user_id: stored.user_id,
@@ -158,38 +191,32 @@ async fn run() -> anyhow::Result<()> {
             .ok_or_else(|| anyhow::anyhow!("未找到认证信息，请先运行 emby-dl auth"))?;
         let info = api::auth::authenticate(&http, &cred.server_url, &cred.username, &cred.password).await?;
         db.save_auth(&cred.server_url, &info.username, &info.access_token, &info.user_id)?;
-        eprintln!("登录成功: {} (用户: {})", cred.server_url, info.username);
+        info!("登录成功: {} (用户: {})", cred.server_url, info.username);
         info
     };
 
-    let client = api::client::EmbyClient::new(http, auth_info);
+    let client = api::client::EmbyClient::new(http, auth_info)?;
 
     let opts = DownloadOptions {
         output_dir: cli.output,
-        overwrite: false,
-    };
-
-    let command = match &cli.command {
-        Some(cmd) => cmd,
-        None => return Ok(()),
+        overwrite: cli.overwrite,
+        dry_run: cli.dry_run,
+        no_resume: cli.no_resume,
     };
 
     match command {
-        Commands::Auth => unreachable!(),
-        Commands::Proxy { .. } => unreachable!(),
-
         Commands::Login => {
-            eprintln!("认证成功!");
+            info!("认证成功!");
         }
 
         Commands::Series { id } => {
             let seasons = client.get_series_seasons(id).await?;
             if seasons.is_empty() {
-                println!("该系列暂无季");
+                info!("该系列暂无季");
             } else {
                 for s in &seasons {
                     let num = s.index_number.unwrap_or(0);
-                    println!("  [{}] 第{}季 - {}", s.id, num, s.name);
+                    info!("  [{}] 第{}季 - {}", s.id, num, s.name);
                 }
             }
         }
@@ -197,12 +224,12 @@ async fn run() -> anyhow::Result<()> {
         Commands::Season { id } => {
             let episodes = client.get_child_items(id, "Episode").await?;
             if episodes.is_empty() {
-                println!("该季暂无剧集");
+                info!("该季暂无剧集");
             } else {
                 for ep in &episodes {
                     let ep_num = ep.index_number.unwrap_or(1);
                     let season_num = ep.parent_index_number.unwrap_or(1);
-                    println!(
+                    info!(
                         "  [{}] S{:02}E{:02} - {}",
                         ep.id, season_num, ep_num, ep.name
                     );
@@ -212,10 +239,10 @@ async fn run() -> anyhow::Result<()> {
 
         Commands::List => {
             let views = client.list_views().await?;
-            println!("媒体库列表:");
+            info!("媒体库列表:");
             for v in &views {
                 let ctype = v.collection_type.as_deref().unwrap_or("未知");
-                println!("  {} [{}] ({})", v.name, ctype, v.id);
+                info!("  {} [{}] ({})", v.name, ctype, v.id);
             }
         }
 
@@ -223,12 +250,13 @@ async fn run() -> anyhow::Result<()> {
             query,
             limit,
             library,
+            item_type,
         } => {
             let items = client
-                .search_items(query, library.as_deref(), *limit)
+                .search_items(query, library.as_deref(), *limit, item_type.as_deref())
                 .await?;
             if items.is_empty() {
-                println!("未找到匹配结果");
+                info!("未找到匹配结果");
             } else {
                 for item in &items {
                     print_item(item);
@@ -239,25 +267,31 @@ async fn run() -> anyhow::Result<()> {
         Commands::Get { id } => {
             let item = client.get_item(id).await?;
             print_item(&item);
-            download::download_item(&client, &item, &opts).await?;
+            if !opts.dry_run {
+                download::download_item(&client, &item, &opts).await?;
+            }
         }
 
         Commands::Batch {
             query,
             limit,
             library,
+            item_type,
         } => {
             let items = client
-                .search_items(query, library.as_deref(), *limit)
+                .search_items(query, library.as_deref(), *limit, item_type.as_deref())
                 .await?;
             if items.is_empty() {
-                println!("未找到匹配结果");
+                info!("未找到匹配结果");
                 return Ok(());
             }
-            println!("找到 {} 个条目，开始下载...", items.len());
-            for item in &items {
-                if let Err(e) = download::download_item(&client, item, &opts).await {
-                    eprintln!("下载失败 [{}]: {}", item.name, e);
+            info!("找到 {} 个条目", items.len());
+            if !opts.dry_run {
+                info!("开始下载...");
+                for item in &items {
+                    if let Err(e) = download::download_item(&client, item, &opts).await {
+                        error!("下载失败 [{}]: {}", item.name, e);
+                    }
                 }
             }
         }
@@ -272,9 +306,11 @@ async fn run() -> anyhow::Result<()> {
             let container = download::extract_container(&source);
             let filename = utils::filename::build_item_filename(&item, &container);
             let url = download::build_download_url(&client, &item.id, &source);
-            eprintln!("文件名: {}", filename);
-            println!("{}", url);
+            info!("文件名: {}", filename);
+            info!("{}", url);
         }
+
+        Commands::Auth | Commands::Proxy { .. } => unreachable!(),
     }
 
     Ok(())
@@ -311,20 +347,20 @@ fn print_item(item: &api::items::EmbyItem) {
     if is_episode && let Some(s) = series {
         let season = item.parent_index_number.unwrap_or(1);
         let episode = item.index_number.unwrap_or(1);
-        println!(
+        info!(
             "  {} [{}] {} - S{:02}E{:02} - {}",
             type_tag, item.id, s, season, episode, item.name
         );
     } else if is_season && let Some(s) = series {
         let num = item.index_number.unwrap_or(0);
-        println!(
+        info!(
             "  {} [{}] {} - 第{}季 - {}",
             type_tag, item.id, s, num, item.name
         );
     } else if let Some(s) = series {
         let season = item.parent_index_number.unwrap_or(1);
         let episode = item.index_number.unwrap_or(1);
-        println!(
+        info!(
             "  {} [{}] {} - S{:02}E{:02} - {}",
             type_tag, item.id, s, season, episode, item.name
         );
@@ -333,23 +369,24 @@ fn print_item(item: &api::items::EmbyItem) {
             .production_year
             .map(|y| format!(" ({})", y))
             .unwrap_or_default();
-        println!("  {} [{}] {}{}", type_tag, item.id, item.name, year);
+        info!("  {} [{}] {}{}", type_tag, item.id, item.name, year);
     }
 }
 
 fn main() {
-    let rt = match tokio::runtime::Builder::new_current_thread()
+    tracing_subscriber::fmt::init();
+    let rt = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
     {
         Ok(rt) => rt,
         Err(e) => {
-            eprintln!("无法创建运行时: {}", e);
+            error!("无法创建运行时: {}", e);
             std::process::exit(1);
         }
     };
     if let Err(e) = rt.block_on(run()) {
-        eprintln!("错误: {}", e);
+        error!("错误: {}", e);
         std::process::exit(1);
     }
 }

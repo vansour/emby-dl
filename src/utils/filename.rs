@@ -1,12 +1,19 @@
 use crate::api::items::EmbyItem;
 
+const INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0'];
+
 pub fn sanitize(name: &str) -> String {
-    let invalid = ['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0'];
     let s: String = name
         .chars()
-        .map(|c| if invalid.contains(&c) { ' ' } else { c })
+        .map(|c| if INVALID_CHARS.contains(&c) { ' ' } else { c })
         .collect();
-    let trimmed: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let trimmed: String = s.split_whitespace().fold(String::new(), |mut acc, w| {
+        if !acc.is_empty() {
+            acc.push(' ');
+        }
+        acc.push_str(w);
+        acc
+    });
     if trimmed.is_empty() {
         "untitled".into()
     } else {

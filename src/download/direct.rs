@@ -1,23 +1,35 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use anyhow::Context;
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
+use tracing::info;
 
 use crate::utils::progress::{DownloadProgress, DownloadProgressUnknown};
 
-trait ProgressInc {
-    fn inc(&self, n: u64);
-    fn finish(&self);
+enum ProgressType {
+    Known(DownloadProgress),
+    Unknown(DownloadProgressUnknown),
 }
 
-impl ProgressInc for DownloadProgress {
-    fn inc(&self, n: u64) { self.inc(n); }
-    fn finish(&self) { self.finish(); }
+impl ProgressType {
+    fn inc(&self, n: u64) {
+        match self {
+            ProgressType::Known(p) => p.inc(n),
+            ProgressType::Unknown(p) => p.inc(n),
+        }
+    }
+    fn finish(&self) {
+        match self {
+            ProgressType::Known(p) => p.finish(),
+            ProgressType::Unknown(p) => p.finish(),
+        }
+    }
 }
 
-impl ProgressInc for DownloadProgressUnknown {
-    fn inc(&self, n: u64) { self.inc(n); }
-    fn finish(&self) { self.finish(); }
+fn part_path(path: &Path) -> PathBuf {
+    let name = format!("{}.part", path.file_name().unwrap_or_default().to_string_lossy());
+    path.parent().unwrap_or(Path::new(".")).join(name)
 }
 
 pub async fn download_file(
@@ -32,8 +44,10 @@ pub async fn download_file(
         .and_then(|n| n.to_str())
         .unwrap_or("unknown");
 
-    let existing_size = if path.exists() {
-        tokio::fs::metadata(path).await?.len()
+    let part = part_path(path);
+
+    let existing_size = if part.exists() {
+        tokio::fs::metadata(&part).await?.len()
     } else {
         0
     };
@@ -82,48 +96,79 @@ pub async fn download_file(
         tokio::fs::create_dir_all(parent).await?;
     }
 
-    let file = tokio::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .await
-        .map_err(|e| anyhow::anyhow!("无法创建文件 {}: {}", path.display(), e))?;
+    let file = if resp.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+        tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&part)
+            .await
+            .map_err(|e| anyhow::anyhow!("无法打开文件 {}: {}", part.display(), e))?
+    } else {
+        tokio::fs::File::create(&part)
+            .await
+            .map_err(|e| anyhow::anyhow!("无法创建文件 {}: {}", part.display(), e))?
+    };
 
-    let mut writer = tokio::io::BufWriter::new(file);
+    let mut writer = tokio::io::BufWriter::with_capacity(256 * 1024, file);
 
     if existing_size > 0 {
-        eprintln!("检测到已有 {}，断点续传中...", filename);
+        info!("检测到已有 {}，断点续传中...", filename);
     }
 
     let offset = if resp.status() == reqwest::StatusCode::PARTIAL_CONTENT {
         existing_size
     } else {
         if existing_size > 0 {
-            eprintln!("服务器不支持断点续传，重新下载");
+            info!("服务器不支持断点续传，重新下载");
         }
         0
     };
 
-    let mut stream = resp.bytes_stream();
-
-    let progress: Box<dyn ProgressInc> = if let Some(total) = final_total {
-        let p = DownloadProgress::new(filename, offset + total)?;
+    let progress = if let Some(total) = final_total {
+        let total = offset.checked_add(total).context("文件大小溢出")?;
+        let p = DownloadProgress::new(filename, total)?;
         if offset > 0 {
             p.set_position(offset);
         }
-        Box::new(p)
+        ProgressType::Known(p)
     } else {
-        Box::new(DownloadProgressUnknown::new(filename)?)
+        ProgressType::Unknown(DownloadProgressUnknown::new(filename)?)
     };
 
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| anyhow::anyhow!("读取流失败: {}", e))?;
-        writer.write_all(&chunk).await?;
-        progress.inc(chunk.len() as u64);
-    }
-    progress.finish();
+    let mut stream = resp.bytes_stream();
+    let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.ok();
+        let _ = cancel_tx.send(());
+    });
 
+    loop {
+        tokio::select! {
+            chunk = stream.next() => {
+                match chunk {
+                    Some(Ok(data)) => {
+                        writer.write_all(&data).await?;
+                        progress.inc(data.len() as u64);
+                    }
+                    Some(Err(e)) => return Err(anyhow::anyhow!("读取流失败: {}", e)),
+                    None => break,
+                }
+            }
+            _ = &mut cancel_rx => {
+                drop(writer);
+                let _ = tokio::fs::remove_file(&part).await;
+                anyhow::bail!("下载被用户中断");
+            }
+        }
+    }
+
+    progress.finish();
     writer.flush().await?;
+    drop(writer);
+
+    tokio::fs::rename(&part, path).await
+        .map_err(|e| anyhow::anyhow!("重命名临时文件失败: {}", e))?;
+
     Ok(())
 }
 
