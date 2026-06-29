@@ -25,6 +25,18 @@ impl EmbyClient {
             reqwest::header::HeaderValue::from_str(&self.auth.access_token)
                 .map_err(|e| anyhow::anyhow!("无效的 access token: {}", e))?,
         );
+        headers.insert(
+            "X-Emby-Client",
+            reqwest::header::HeaderValue::from_static("emby-dl"),
+        );
+        headers.insert(
+            "X-Emby-Client-Version",
+            reqwest::header::HeaderValue::from_static("0.0.1"),
+        );
+        headers.insert(
+            "X-Emby-Device-Name",
+            reqwest::header::HeaderValue::from_static("CLI"),
+        );
         Ok(headers)
     }
 
@@ -52,11 +64,16 @@ impl EmbyClient {
             return Err(anyhow::anyhow!("请求失败 ({}): {}", status, text));
         }
 
-        let text = resp.text().await
-            .map_err(|e| anyhow::anyhow!("读取响应体失败: {}", e))?;
-        let preview: String = text.chars().take(500).collect();
-        serde_json::from_str(&text)
-            .map_err(|e| anyhow::anyhow!("解析响应失败: {}\n原始响应(前500字符): {}", e, preview))
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await
+                .unwrap_or_else(|e| format!("(读取错误响应失败: {})", e));
+            return Err(anyhow::anyhow!("请求失败 ({}): {}", status, text));
+        }
+
+        resp.json()
+            .await
+            .map_err(|e| anyhow::anyhow!("解析响应失败: {}", e))
     }
 
     pub async fn list_views(&self) -> anyhow::Result<Vec<View>> {
