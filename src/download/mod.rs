@@ -91,9 +91,16 @@ async fn download_single(
         None => opts.output_dir.join(&filename),
     };
 
-    if dest.exists() && !opts.overwrite {
-        eprintln!("跳过已存在的文件: {}", filename);
-        return Ok(());
+    if dest.exists() {
+        if opts.overwrite {
+            tokio::fs::remove_file(&dest).await?;
+        } else if let Some(expected) = source.size {
+            let actual = tokio::fs::metadata(&dest).await?.len();
+            if actual == expected as u64 {
+                eprintln!("跳过已存在的文件: {}", filename);
+                return Ok(());
+            }
+        }
     }
 
     if let Some(parent) = dest.parent() {
