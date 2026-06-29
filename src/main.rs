@@ -70,6 +70,22 @@ enum Commands {
         /// 媒体条目 ID
         id: String,
     },
+    /// 配置 HTTP/SOCKS5 代理
+    Proxy {
+        #[command(subcommand)]
+        action: ProxyAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProxyAction {
+    /// 设置代理，如 http://127.0.0.1:8080 或 socks5://127.0.0.1:1080
+    Set {
+        /// 代理 URL
+        url: String,
+    },
+    /// 清除代理
+    Remove,
 }
 
 async fn run() -> anyhow::Result<()> {
@@ -77,9 +93,31 @@ async fn run() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
     let db = AuthDb::open()?;
-    let http = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(30))
-        .build()?;
+
+    // Proxy subcommand: configure proxy, no auth needed
+    if let Some(Commands::Proxy { action }) = &cli.command {
+        match action {
+            ProxyAction::Set { url } => {
+                db.save_proxy(url)?;
+                eprintln!("代理已保存: {}", url);
+            }
+            ProxyAction::Remove => {
+                db.remove_proxy()?;
+                eprintln!("代理已清除");
+            }
+        }
+        return Ok(());
+    }
+
+    let mut http_builder = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(30));
+    if let Some(proxy_url) = db.load_proxy()? {
+        let proxy = reqwest::Proxy::all(&proxy_url)
+            .map_err(|e| anyhow::anyhow!("无效的代理地址: {}", e))?;
+        http_builder = http_builder.proxy(proxy);
+        eprintln!("使用代理: {}", proxy_url);
+    }
+    let http = http_builder.build()?;
 
     // Auth subcommand: interactive setup, no existing auth needed
     if let Some(Commands::Auth) = &cli.command {
@@ -138,6 +176,7 @@ async fn run() -> anyhow::Result<()> {
 
     match command {
         Commands::Auth => unreachable!(),
+        Commands::Proxy { .. } => unreachable!(),
 
         Commands::Login => {
             eprintln!("认证成功!");

@@ -52,8 +52,36 @@ impl AuthDb {
                 username     TEXT NOT NULL,
                 access_token BLOB NOT NULL,
                 user_id      TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS proxy (
+                id         INTEGER PRIMARY KEY CHECK (id = 1),
+                proxy_url  TEXT NOT NULL
             );",
         )?;
+        Ok(())
+    }
+
+    pub fn save_proxy(&self, proxy_url: &str) -> anyhow::Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO proxy (id, proxy_url) VALUES (1, ?1)",
+            rusqlite::params![proxy_url],
+        )?;
+        Ok(())
+    }
+
+    pub fn load_proxy(&self) -> anyhow::Result<Option<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT proxy_url FROM proxy WHERE id = 1")?;
+        match stmt.query_row([], |row| row.get(0)) {
+            Ok(url) => Ok(Some(url)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn remove_proxy(&self) -> anyhow::Result<()> {
+        self.conn.execute("DELETE FROM proxy WHERE id = 1", [])?;
         Ok(())
     }
 
