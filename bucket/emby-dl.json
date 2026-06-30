@@ -1,5 +1,5 @@
 {
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "从 Emby 媒体服务器下载视频的命令行工具",
   "homepage": "https://github.com/vansour/emby-dl",
   "license": "Unknown",

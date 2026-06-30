@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.0.6 (2025-06-30)
+
+### Bug 修复
+
+- **断点续传失效**：Ctrl+C 中断时删除 `.part` 文件导致无法续传，改为保留文件
+- **分类文件夹不完整**：补充所有常见 Emby 媒体类型的分类映射
+
+### 功能变更
+
+- **分类文件夹**：下载时按媒体类型自动归入分类目录：
+  - `电影/` → Movie, BoxSet
+  - `剧集/` → Episode, Season, Series
+  - `音乐/` → MusicArtist, MusicAlbum, Audio
+  - `预告/` → Trailer
+  - `书籍/` → Book
+  - `视频/` → Video
+  - `照片/` → Photo, PhotoAlbum
+  - `节目/` → Program
+
+### 工程改进
+
+- 版本号统一更新至 0.0.6
+
 ## v0.0.5 (2025-06-30)
 
 ### 新增功能

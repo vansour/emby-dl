@@ -37,11 +37,21 @@ pub fn build_download_url(client: &EmbyClient, item_id: &str, source: &MediaSour
 
 fn category_folder(item_type: Option<&str>) -> Option<&'static str> {
     match item_type {
-        Some("Movie") => Some("电影"),
-        Some("Episode") => Some("剧集"),
-        Some("Series") => Some("系列"),
-        Some("Season") => Some("剧集"),
-        _ => None,
+        Some("Movie")       => Some("电影"),
+        Some("BoxSet")      => Some("电影"),
+        Some("Episode")     => Some("剧集"),
+        Some("Season")      => Some("剧集"),
+        Some("Series")      => Some("剧集"),
+        Some("MusicArtist") => Some("音乐"),
+        Some("MusicAlbum")  => Some("音乐"),
+        Some("Audio")       => Some("音乐"),
+        Some("Trailer")     => Some("预告"),
+        Some("Book")        => Some("书籍"),
+        Some("Video")       => Some("视频"),
+        Some("Photo")       => Some("照片"),
+        Some("PhotoAlbum")  => Some("照片"),
+        Some("Program")     => Some("节目"),
+        _                   => None,
     }
 }
 

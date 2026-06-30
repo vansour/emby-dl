@@ -46,7 +46,7 @@ pub async fn authenticate(
         .header("Content-Type", "application/json")
         .header(
             "X-Emby-Authorization",
-            "MediaBrowser Client=\"emby-dl\", Device=\"CLI\", DeviceId=\"emby-dl\", Version=\"0.0.5\"",
+            "MediaBrowser Client=\"emby-dl\", Device=\"CLI\", DeviceId=\"emby-dl\", Version=\"0.0.6\"",
         )
         .json(&body)
         .send()
