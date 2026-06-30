@@ -162,8 +162,7 @@ pub async fn download_file(
             }
             _ = &mut cancel_rx => {
                 drop(writer);
-                let _ = tokio::fs::remove_file(&part).await;
-                anyhow::bail!("下载被用户中断");
+                anyhow::bail!("下载被用户中断，.part 文件已保留，下次自动续传");
             }
         }
     }

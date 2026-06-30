@@ -35,6 +35,16 @@ pub fn build_download_url(client: &EmbyClient, item_id: &str, source: &MediaSour
     client.build_stream_url(item_id, &source.id)
 }
 
+fn category_folder(item_type: Option<&str>) -> Option<&'static str> {
+    match item_type {
+        Some("Movie") => Some("电影"),
+        Some("Episode") => Some("剧集"),
+        Some("Series") => Some("系列"),
+        Some("Season") => Some("剧集"),
+        _ => None,
+    }
+}
+
 fn deduplicate_filename(filename: &str) -> String {
     let mut map = USED_NAMES.lock().unwrap();
     let set = map.get_or_insert_with(HashSet::new);
@@ -128,17 +138,28 @@ async fn download_single(
     let filename = deduplicate_filename(&filename::build_item_filename(item, &container, series_name));
     let season_dir = format!("Season {:02}", item.parent_index_number.unwrap_or(1));
     let sn = item.series_name.as_deref().or(series_name);
+    let cat = category_folder(item.item_type.as_deref());
     let dest = match sn {
-        Some(name) => opts.output_dir
-            .join(filename::sanitize(name))
-            .join(&season_dir)
-            .join(&filename),
+        Some(name) => {
+            let mut base = opts.output_dir.clone();
+            if let Some(c) = cat {
+                base = base.join(c);
+            }
+            base
+                .join(filename::sanitize(name))
+                .join(&season_dir)
+                .join(&filename)
+        }
         None => {
             let folder = std::path::Path::new(&filename)
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("movie");
-            opts.output_dir.join(folder).join(&filename)
+            let mut dest = opts.output_dir.clone();
+            if let Some(c) = cat {
+                dest = dest.join(c);
+            }
+            dest.join(folder).join(&filename)
         }
     };
 
