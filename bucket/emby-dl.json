@@ -5,16 +5,16 @@
   "license": "Unknown",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/vansour/emby-dl/releases/download/v0.0.5/emby-dl-x86_64-pc-windows-msvc.zip",
-      "hash": "bb618eb1b9aa4218f4254e6498e6637dc3dfc923f622377f3679db00bb486fb6"
+      "url": "https://github.com/vansour/emby-dl/releases/download/v0.0.6/emby-dl-x86_64-pc-windows-msvc.zip",
+      "hash": "c3a67942abb35e91bb9b2ec1207f4491f6c5fd4860d025527b424911c54a4b82"
     },
     "32bit": {
-      "url": "https://github.com/vansour/emby-dl/releases/download/v0.0.5/emby-dl-i686-pc-windows-msvc.zip",
-      "hash": "0b9f5c55c438a983b1c950afc0d1b5153d3ab70b36075dec1832db7b8518cbde"
+      "url": "https://github.com/vansour/emby-dl/releases/download/v0.0.6/emby-dl-i686-pc-windows-msvc.zip",
+      "hash": "ee894d406921556e1725ed80123bf4032f579d5b2f6d1b7e9696540f3997a0e1"
     },
     "arm64": {
-      "url": "https://github.com/vansour/emby-dl/releases/download/v0.0.5/emby-dl-aarch64-pc-windows-msvc.zip",
-      "hash": "7b307915838c44cf53144f31bca013dcb0c0743b3c95bce283e3d2e3e5c0467b"
+      "url": "https://github.com/vansour/emby-dl/releases/download/v0.0.6/emby-dl-aarch64-pc-windows-msvc.zip",
+      "hash": "f73be396af484ab3ad180e509ffce5e5bf885e539fd75364593fdcb2904a03d5"
     }
   },
   "bin": "emby-dl.exe",
