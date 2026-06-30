@@ -218,7 +218,53 @@ jobs:
           }
           EOF
 
-      - name: Upload Scoop manifest to Release
+      - name: Compute macOS archive hashes
+        shell: bash
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          TAG="${{ github.ref_name }}"
+
+          # Download macOS archives from the release
+          for arch in x86_64-apple-darwin aarch64-apple-darwin; do
+            URL="https://github.com/vansour/emby-dl/releases/download/${TAG}/emby-dl-${arch}.tar.gz"
+            curl -sL -o "/tmp/emby-dl-${arch}.tar.gz" "$URL"
+          done
+
+          HASH_X64=$(sha256sum /tmp/emby-dl-x86_64-apple-darwin.tar.gz | cut -d' ' -f1)
+          HASH_ARM=$(sha256sum /tmp/emby-dl-aarch64-apple-darwin.tar.gz | cut -d' ' -f1)
+
+          cat > Formula/emby-dl.rb <<EOF
+          class EmbyDl < Formula
+            desc "从 Emby 媒体服务器下载视频的命令行工具"
+            homepage "https://github.com/vansour/emby-dl"
+            license "Unknown"
+            version "$VERSION"
+
+            on_macos do
+              on_intel do
+                url "https://github.com/vansour/emby-dl/releases/download/v\#{version}/emby-dl-x86_64-apple-darwin.tar.gz"
+                sha256 "$HASH_X64"
+              end
+              on_arm do
+                url "https://github.com/vansour/emby-dl/releases/download/v\#{version}/emby-dl-aarch64-apple-darwin.tar.gz"
+                sha256 "$HASH_ARM"
+              end
+            end
+
+            def install
+              bin.install "emby-dl"
+            end
+
+            test do
+              assert_match "emby-dl \#{version}", shell_output("\#{bin}/emby-dl --version")
+            end
+          end
+          EOF
+
+      - name: Upload Scoop manifest & Homebrew formula to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: scoop/emby-dl.json
+          files: |
+            scoop/emby-dl.json
+            Formula/emby-dl.rb

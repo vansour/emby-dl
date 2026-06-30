@@ -18,6 +18,23 @@ scoop bucket add emby-dl https://github.com/vansour/emby-dl
 scoop install emby-dl
 ```
 
+### Homebrew 安装（macOS）
+
+```bash
+# 直接从 Formula 安装（无需 tap）
+brew install https://github.com/vansour/emby-dl/raw/main/Formula/emby-dl.rb
+
+# 更新
+brew upgrade --fetch-HEAD emby-dl
+```
+
+或创建个人 tap 仓库 `vansour/homebrew-tap`，将 `Formula/emby-dl.rb` 放入其中：
+
+```bash
+brew tap vansour/homebrew-tap
+brew install emby-dl
+```
+
 ### 一键安装脚本（Linux）
 
 ```bash
