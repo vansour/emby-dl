@@ -175,7 +175,7 @@ jobs:
             esac
           done
 
-          cat > scoop/emby-dl.json <<EOF
+          cat > bucket/emby-dl.json <<EOF
           {
             "version": "$VERSION",
             "description": "从 Emby 媒体服务器下载视频的命令行工具",
@@ -266,5 +266,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            scoop/emby-dl.json
+            bucket/emby-dl.json
             Formula/emby-dl.rb

@@ -28,7 +28,7 @@ brew install https://github.com/vansour/emby-dl/raw/main/Formula/emby-dl.rb
 brew upgrade --fetch-HEAD emby-dl
 ```
 
-或创建个人 tap 仓库 `vansour/homebrew-tap`，将 `Formula/emby-dl.rb` 放入其中：
+或创建个人 tap 仓库 `vansour/homebrew-tap`，将 `Formula/emby-dl.rb` 放入 `Formula/` 目录：
 
 ```bash
 brew tap vansour/homebrew-tap
