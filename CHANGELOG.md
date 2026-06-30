@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.0.5 (2025-06-30)
+
+### 新增功能
+
+- **Scoop 安装支持**：新增 `scoop/emby-dl.json` 清单，支持 `scoop bucket add` 安装
+- **Homebrew 安装支持**：新增 `Formula/emby-dl.rb`，支持 `brew install` 安装
+
+### 工程改进
+
+- 版本号统一更新至 0.0.5
+- Release 工作流自动生成 Scoop 清单和 Homebrew formula（含正确 SHA256）
+- README 补充各平台配置路径说明
+
 ## v0.0.4 (2025-06-30)
 
 ### Bug 修复

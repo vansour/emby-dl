@@ -2,7 +2,7 @@ class EmbyDl < Formula
   desc "从 Emby 媒体服务器下载视频的命令行工具"
   homepage "https://github.com/vansour/emby-dl"
   license "Unknown"
-  version "0.0.4"
+  version "0.0.5"
 
   on_macos do
     on_intel do

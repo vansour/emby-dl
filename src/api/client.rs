@@ -29,7 +29,7 @@ impl EmbyClient {
         );
         headers.insert(
             "X-Emby-Client-Version",
-            reqwest::header::HeaderValue::from_static("0.0.4"),
+            reqwest::header::HeaderValue::from_static("0.0.5"),
         );
         headers.insert(
             "X-Emby-Device-Name",
