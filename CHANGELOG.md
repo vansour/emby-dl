@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.0.3 (2025-06-30)
+
+### Bug 修复
+
+- **剧集文件名缺失 SxxExx**：下载系列/季时剧集文件被命名为电影格式（`剧集名 (年份).ext`）而非剧集格式（`系列名 - SxxExx - 剧集名.ext`）
+- **Release Changelog 为空**：`release.yml` 中 awk 精确匹配 `## v0.0.2` 失败，因 CHANGELOG 标题含日期后缀，改为行首前缀匹配
+
+### 功能变更
+
+- **电影下载新增独立文件夹**：每个电影文件放入同名目录，避免根目录文件堆积（`The Matrix (1999)/The Matrix (1999).mkv`）
+
+### 工程改进
+
+- 版本号统一更新至 0.0.3（Cargo.toml / Emby Authorization header / X-Emby-Client-Version）
+
 ## v0.0.2 (2025-06-29)
 
 ### 新增功能

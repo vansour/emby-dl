@@ -304,7 +304,7 @@ async fn run() -> anyhow::Result<()> {
                 .next()
                 .ok_or_else(|| anyhow::anyhow!("未找到可用的媒体源"))?;
             let container = download::extract_container(&source);
-            let filename = utils::filename::build_item_filename(&item, &container);
+            let filename = utils::filename::build_item_filename(&item, &container, None);
             let url = download::build_download_url(&client, &item.id, &source);
             info!("文件名: {}", filename);
             info!("{}", url);

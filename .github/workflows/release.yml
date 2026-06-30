@@ -104,7 +104,7 @@ jobs:
         shell: bash
         run: |
           awk -v tag="${{ github.ref_name }}" \
-            '/^## /{found=0} $0=="## "tag{found=1} found' \
+            '/^## /{found=0} $0 ~ "^## " tag {found=1} found' \
             CHANGELOG.md > release_body.md
 
       - name: Upload to Release

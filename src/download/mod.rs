@@ -83,7 +83,7 @@ async fn download_single(
 
     let container = extract_container(&source);
     let stream_url = build_download_url(client, &item.id, &source);
-    let filename = filename::build_item_filename(item, &container);
+    let filename = filename::build_item_filename(item, &container, series_name);
     let season_dir = format!("Season {:02}", item.parent_index_number.unwrap_or(1));
     let sn = item.series_name.as_deref().or(series_name);
     let dest = match sn {
@@ -91,7 +91,13 @@ async fn download_single(
             .join(filename::sanitize(name))
             .join(&season_dir)
             .join(&filename),
-        None => opts.output_dir.join(&filename),
+        None => {
+            let folder = std::path::Path::new(&filename)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("movie");
+            opts.output_dir.join(folder).join(&filename)
+        }
     };
 
     if dest.exists() {
