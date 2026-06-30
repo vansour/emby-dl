@@ -8,6 +8,7 @@ use crate::api::auth::AuthInfo;
 use crate::api::items::*;
 use serde::de::DeserializeOwned;
 
+#[derive(Clone)]
 pub struct EmbyClient {
     pub http: reqwest::Client,
     pub auth: AuthInfo,
@@ -28,7 +29,7 @@ impl EmbyClient {
         );
         headers.insert(
             "X-Emby-Client-Version",
-            reqwest::header::HeaderValue::from_static("0.0.3"),
+            reqwest::header::HeaderValue::from_static("0.0.4"),
         );
         headers.insert(
             "X-Emby-Device-Name",
@@ -88,6 +89,7 @@ impl EmbyClient {
             ("SearchTerm", query),
             ("Recursive", "true"),
             ("Limit", &limit_str),
+            ("Fields", "SeriesName,ParentIndexNumber,IndexNumber"),
         ];
         if let Some(pid) = parent_id {
             all_params.push(("ParentId", pid));
@@ -124,7 +126,9 @@ impl EmbyClient {
         let path = ITEM_PATH
             .replacen("{}", &self.auth.user_id, 1)
             .replacen("{}", item_id, 1);
-        self.get_json(&path, &[]).await
+        self.get_json(&path, &[
+            ("Fields", "SeriesName,ParentIndexNumber,IndexNumber"),
+        ]).await
     }
 
     pub fn build_stream_url(&self, item_id: &str, source_id: &str) -> String {

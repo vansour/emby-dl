@@ -1,18 +1,23 @@
 pub mod direct;
 
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use crate::api::client::EmbyClient;
 use tracing::{error, info};
 use crate::api::items::{EmbyItem, MediaSourceInfo};
 use crate::utils::filename;
 
+#[derive(Clone)]
 pub struct DownloadOptions {
     pub output_dir: PathBuf,
     pub overwrite: bool,
     pub dry_run: bool,
     pub no_resume: bool,
 }
+
+static USED_NAMES: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 
 /// 从 MediaSource 中提取实际容器格式，默认 mkv
 pub fn extract_container(source: &MediaSourceInfo) -> String {
@@ -30,6 +35,35 @@ pub fn build_download_url(client: &EmbyClient, item_id: &str, source: &MediaSour
     client.build_stream_url(item_id, &source.id)
 }
 
+fn deduplicate_filename(filename: &str) -> String {
+    let mut map = USED_NAMES.lock().unwrap();
+    let set = map.get_or_insert_with(HashSet::new);
+    if set.insert(filename.to_string()) {
+        filename.to_string()
+    } else {
+        let stem = std::path::Path::new(filename)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(filename);
+        let ext = std::path::Path::new(filename)
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        let mut suffix = 2;
+        loop {
+            let candidate = if ext.is_empty() {
+                format!("{} ({})", stem, suffix)
+            } else {
+                format!("{} ({}).{}", stem, suffix, ext)
+            };
+            if set.insert(candidate.clone()) {
+                return candidate;
+            }
+            suffix += 1;
+        }
+    }
+}
+
 pub async fn download_item(
     client: &EmbyClient,
     item: &EmbyItem,
@@ -43,12 +77,16 @@ pub async fn download_item(
             }
             for season in &seasons {
                 let series_name = season.series_name.as_deref().unwrap_or(&item.name);
+                let season_number = season.index_number;
                 let episodes = match client.get_child_items(&season.id, "Episode").await {
                     Ok(v) => v,
                     Err(e) => { error!("获取季剧集失败: {}", e); continue; }
                 };
-                for ep in &episodes {
-                    if let Err(e) = download_single(client, ep, Some(series_name), opts).await {
+                for mut ep in episodes {
+                    if ep.parent_index_number.is_none() {
+                        ep.parent_index_number = season_number;
+                    }
+                    if let Err(e) = download_single(client, &ep, Some(series_name), opts).await {
                         error!("下载失败 [{}]: {}", ep.name, e);
                     }
                 }
@@ -57,9 +95,13 @@ pub async fn download_item(
         }
         Some("Season") => {
             let series_name = item.series_name.as_deref();
+            let season_number = item.index_number;
             let episodes = client.get_child_items(&item.id, "Episode").await?;
-            for ep in &episodes {
-                if let Err(e) = download_single(client, ep, series_name, opts).await {
+            for mut ep in episodes {
+                if ep.parent_index_number.is_none() {
+                    ep.parent_index_number = season_number;
+                }
+                if let Err(e) = download_single(client, &ep, series_name, opts).await {
                     error!("下载失败 [{}]: {}", ep.name, e);
                 }
             }
@@ -83,7 +125,7 @@ async fn download_single(
 
     let container = extract_container(&source);
     let stream_url = build_download_url(client, &item.id, &source);
-    let filename = filename::build_item_filename(item, &container, series_name);
+    let filename = deduplicate_filename(&filename::build_item_filename(item, &container, series_name));
     let season_dir = format!("Season {:02}", item.parent_index_number.unwrap_or(1));
     let sn = item.series_name.as_deref().or(series_name);
     let dest = match sn {
@@ -101,7 +143,7 @@ async fn download_single(
     };
 
     if dest.exists() {
-        if opts.overwrite || opts.no_resume {
+        if opts.overwrite {
             tokio::fs::remove_file(&dest).await?;
         } else if let Some(expected) = source.size {
             let actual = tokio::fs::metadata(&dest).await?.len();
@@ -117,6 +159,14 @@ async fn download_single(
 
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent).await?;
+    }
+
+    // --no-resume: 删除 .part 临时文件，强制重新下载
+    let part_path = direct::part_path(&dest);
+    if opts.no_resume || opts.overwrite {
+        if part_path.exists() {
+            tokio::fs::remove_file(&part_path).await?;
+        }
     }
 
     info!("下载: {}", filename);

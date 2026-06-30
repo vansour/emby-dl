@@ -104,6 +104,8 @@ enum ProxyAction {
         /// 代理 URL
         url: String,
     },
+    /// 查看当前代理
+    Show,
     /// 清除代理
     Remove,
 }
@@ -121,8 +123,21 @@ async fn run() -> anyhow::Result<()> {
         Commands::Proxy { action } => {
             match action {
                 ProxyAction::Set { url } => {
+                    let valid_schemes = ["http://", "https://", "socks5://", "socks5h://"];
+                    let has_valid_scheme = valid_schemes.iter().any(|s| url.starts_with(s));
+                    if !has_valid_scheme {
+                        anyhow::bail!("无效的代理地址: 缺少协议头，应使用 http://、https://、socks5:// 或 socks5h://");
+                    }
+                    reqwest::Proxy::all(url)
+                        .map_err(|e| anyhow::anyhow!("无效的代理地址: {}", e))?;
                     db.save_proxy(url)?;
                     info!("代理已保存: {}", url);
+                }
+                ProxyAction::Show => {
+                    match db.load_proxy()? {
+                        Some(url) => info!("当前代理: {}", url),
+                        None => info!("未设置代理"),
+                    }
                 }
                 ProxyAction::Remove => {
                     db.remove_proxy()?;
@@ -222,16 +237,17 @@ async fn run() -> anyhow::Result<()> {
         }
 
         Commands::Season { id } => {
+            let season_item = client.get_item(id).await?;
+            let season_number = season_item.index_number.unwrap_or(1);
             let episodes = client.get_child_items(id, "Episode").await?;
             if episodes.is_empty() {
                 info!("该季暂无剧集");
             } else {
                 for ep in &episodes {
                     let ep_num = ep.index_number.unwrap_or(1);
-                    let season_num = ep.parent_index_number.unwrap_or(1);
                     info!(
                         "  [{}] S{:02}E{:02} - {}",
-                        ep.id, season_num, ep_num, ep.name
+                        ep.id, season_number, ep_num, ep.name
                     );
                 }
             }

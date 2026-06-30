@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.0.4 (2025-06-30)
+
+### Bug 修复
+
+- **search / get 缺失季号**：`search_items` 和 `get_item` 未传 `Fields` 参数，Emby 不返回 `ParentIndexNumber` 和 `IndexNumber`，导致所有剧集季号默认 `Season 01`
+- **ParentId 查询不返回 ParentIndexNumber**：Emby API 在使用 `ParentId` 过滤查询时不返回 `ParentIndexNumber`，从季节对象获取 IndexNumber 手动赋值
+- **代理 URL 缺乏校验**：无效代理地址（如缺少协议头）被静默保存，使用时才报错且信息模糊
+- **proxy 子命令功能不完整**：缺少查看当前代理的命令
+
+### 功能变更
+
+- **代理 URL 保存时校验**：`proxy set` 时立即校验 URL 格式，非法地址直接拒绝并给出明确提示
+- **新增 `proxy show` 命令**：查看当前代理配置
+- **完善 README**：补充完整的子命令文档、目录结构、命名规则、常见问题
+
+### 工程改进
+
+- 版本号统一更新至 0.0.4（Cargo.toml / Emby Authorization header / X-Emby-Client-Version）
+- `EmbyClient` 和 `DownloadOptions` 增加 Clone 派生
+
 ## v0.0.3 (2025-06-30)
 
 ### Bug 修复
