@@ -8,6 +8,16 @@
 
 从 [Releases](https://github.com/vansour/emby-dl/releases) 下载对应平台的压缩包，解压后即可使用。
 
+### Scoop 安装（Windows）
+
+```powershell
+# 添加 bucket
+scoop bucket add emby-dl https://github.com/vansour/emby-dl
+
+# 安装
+scoop install emby-dl
+```
+
 ### 一键安装脚本（Linux）
 
 ```bash

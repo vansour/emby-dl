@@ -31,12 +31,15 @@ jobs:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             pkg_ext: .zip
+            scoop_arch: 64bit
           - target: aarch64-pc-windows-msvc
             os: windows-latest
             pkg_ext: .zip
+            scoop_arch: arm64
           - target: i686-pc-windows-msvc
             os: windows-latest
             pkg_ext: .zip
+            scoop_arch: 32bit
           - target: x86_64-apple-darwin
             os: macos-latest
             pkg_ext: .tar.gz
@@ -100,6 +103,30 @@ jobs:
           Compress-Archive -Path "${BIN_NAME}.exe" -DestinationPath "${ARCHIVE_NAME}"
           echo "archive=${ARCHIVE_NAME}" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      - name: Compute archive hash
+        shell: bash
+        run: |
+          echo "archive_hash=$(sha256sum ${{ env.archive }} | cut -d' ' -f1)" >> $GITHUB_ENV
+
+      - name: Save hash for Scoop manifest
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cat > scoop-hash-${{ matrix.target }}.json <<EOF
+          {
+            "target": "${{ matrix.target }}",
+            "scoop_arch": "${{ matrix.scoop_arch }}",
+            "hash": "${{ env.archive_hash }}"
+          }
+          EOF
+
+      - name: Upload hash artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: scoop-hash-${{ matrix.target }}
+          path: scoop-hash-${{ matrix.target }}.json
+
       - name: Extract changelog for this version
         shell: bash
         run: |
@@ -112,3 +139,86 @@ jobs:
         with:
           body_path: release_body.md
           files: ${{ env.archive }}
+
+  scoop-manifest:
+    name: Generate Scoop manifest
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download hash artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: scoop-hash-*
+          merge-multiple: true
+
+      - name: Generate Scoop manifest
+        shell: bash
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+
+          # Read hashes from artifacts
+          HASH_64=""
+          HASH_32=""
+          HASH_ARM64=""
+
+          for f in scoop-hash-*.json; do
+            arch=$(jq -r '.scoop_arch' "$f")
+            hash=$(jq -r '.hash' "$f")
+            case "$arch" in
+              64bit)   HASH_64="$hash" ;;
+              32bit)   HASH_32="$hash" ;;
+              arm64)   HASH_ARM64="$hash" ;;
+            esac
+          done
+
+          cat > scoop/emby-dl.json <<EOF
+          {
+            "version": "$VERSION",
+            "description": "从 Emby 媒体服务器下载视频的命令行工具",
+            "homepage": "https://github.com/vansour/emby-dl",
+            "license": "Unknown",
+            "architecture": {
+              "64bit": {
+                "url": "https://github.com/vansour/emby-dl/releases/download/v\$version/emby-dl-x86_64-pc-windows-msvc.zip",
+                "hash": "$HASH_64"
+              },
+              "32bit": {
+                "url": "https://github.com/vansour/emby-dl/releases/download/v\$version/emby-dl-i686-pc-windows-msvc.zip",
+                "hash": "$HASH_32"
+              },
+              "arm64": {
+                "url": "https://github.com/vansour/emby-dl/releases/download/v\$version/emby-dl-aarch64-pc-windows-msvc.zip",
+                "hash": "$HASH_ARM64"
+              }
+            },
+            "bin": "emby-dl.exe",
+            "checkver": {
+              "github": "https://github.com/vansour/emby-dl"
+            },
+            "autoupdate": {
+              "architecture": {
+                "64bit": {
+                  "url": "https://github.com/vansour/emby-dl/releases/download/v\$version/emby-dl-x86_64-pc-windows-msvc.zip"
+                },
+                "32bit": {
+                  "url": "https://github.com/vansour/emby-dl/releases/download/v\$version/emby-dl-i686-pc-windows-msvc.zip"
+                },
+                "arm64": {
+                  "url": "https://github.com/vansour/emby-dl/releases/download/v\$version/emby-dl-aarch64-pc-windows-msvc.zip"
+                }
+              },
+              "hash": {
+                "mode": "download"
+              }
+            }
+          }
+          EOF
+
+      - name: Upload Scoop manifest to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: scoop/emby-dl.json
