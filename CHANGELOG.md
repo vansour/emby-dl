@@ -1,27 +1,24 @@
 # Changelog
 
-## v0.0.6 (2025-06-30)
+## v0.0.7 (2026-07-01)
 
-### Bug 修复
+### 新增功能
 
-- **断点续传失效**：Ctrl+C 中断时删除 `.part` 文件导致无法续传，改为保留文件
-- **分类文件夹不完整**：补充所有常见 Emby 媒体类型的分类映射
+- **缓存目录**：`--cache-dir` 参数支持将 `.part` 临时文件写入独立缓存目录，避免云存储挂载（CloudDrive2 等）文件争锁导致下载中断
+- **`clean-cache` 子命令**：清理缓存目录中的 `.part` 残留文件，显示释放空间
+- **默认缓存路径**：不传 `--cache-dir` 时自动使用系统缓存目录（Linux: `~/.cache/emby-dl/download-cache`，macOS: `~/Library/Caches/emby-dl/download-cache`，Windows: `%LOCALAPPDATA%\emby-dl\download-cache`）
 
-### 功能变更
+### 功能改进
 
-- **分类文件夹**：下载时按媒体类型自动归入分类目录：
-  - `电影/` → Movie, BoxSet
-  - `剧集/` → Episode, Season, Series
-  - `音乐/` → MusicArtist, MusicAlbum, Audio
-  - `预告/` → Trailer
-  - `书籍/` → Book
-  - `视频/` → Video
-  - `照片/` → Photo, PhotoAlbum
-  - `节目/` → Program
+- **跨文件系统支持**：下载完成后 `rename` 失败时自动回退为 `copy + delete`，支持缓存与输出目录在不同磁盘/挂载点
+- **进度条优化**：下载速度显示自动使用二进制单位（KiB/s、MiB/s）；长文件名自动截断（45 字符）；下载失败显示 `✗` 标记
+- **断点续传健壮性**：.part 文件已下载字节超过预期大小时提前报错，避免因文件系统异常导致的静默覆盖
 
 ### 工程改进
 
-- 版本号统一更新至 0.0.6
+- 版本号统一更新至 0.0.7
+
+## v0.0.6 (2025-06-30)
 
 ## v0.0.5 (2025-06-30)
 

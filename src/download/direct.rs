@@ -25,11 +25,29 @@ impl ProgressType {
             ProgressType::Unknown(p) => p.finish(),
         }
     }
+    fn abort(&self) {
+        match self {
+            ProgressType::Known(p) => p.abort(),
+            ProgressType::Unknown(p) => p.abort(),
+        }
+    }
 }
 
 pub fn part_path(path: &Path) -> PathBuf {
-    let name = format!("{}.part", path.file_name().unwrap_or_default().to_string_lossy());
+    let name = format!(
+        "{}.part",
+        path.file_name().unwrap_or_default().to_string_lossy()
+    );
     path.parent().unwrap_or(Path::new(".")).join(name)
+}
+
+/// 在缓存目录中创建一个与目标文件对应的 .part 路径
+pub fn part_path_in(cache_dir: &Path, path: &Path) -> PathBuf {
+    let name = format!(
+        "{}.part",
+        path.file_name().unwrap_or_default().to_string_lossy()
+    );
+    cache_dir.join(name)
 }
 
 pub async fn download_file(
@@ -38,13 +56,10 @@ pub async fn download_file(
     path: &Path,
     total_size: Option<u64>,
     token: &str,
+    display_name: &str,
+    part: &Path,
 ) -> anyhow::Result<()> {
-    let filename = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown");
-
-    let part = part_path(path);
+    let filename = display_name;
 
     let existing_size = if part.exists() {
         tokio::fs::metadata(&part).await?.len()
@@ -78,7 +93,8 @@ pub async fn download_file(
         return Err(anyhow::anyhow!("下载失败: HTTP {}", resp.status()));
     }
 
-    let content_type = resp.headers()
+    let content_type = resp
+        .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
@@ -86,7 +102,11 @@ pub async fn download_file(
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
         let preview: String = body.chars().take(300).collect();
-        anyhow::bail!("服务器返回 HTML (HTTP {}) 而非视频文件: {}", status, preview);
+        anyhow::bail!(
+            "服务器返回 HTML (HTTP {}) 而非视频文件: {}",
+            status,
+            preview
+        );
     }
 
     let content_length = resp.content_length();
@@ -124,13 +144,24 @@ pub async fn download_file(
         0
     };
 
+    if let Some(total) = final_total
+        && offset > total
+    {
+        anyhow::bail!(
+            "已下载的字节数 ({}) 超过预期文件大小 ({}), 请删除 .part 文件后重试",
+            offset,
+            total
+        );
+    }
+
     let progress = if let Some(total) = final_total {
         // 206 without Content-Length: total_size is the full file size, not remaining bytes
-        let total = if resp.status() == reqwest::StatusCode::PARTIAL_CONTENT && content_length.is_none() {
-            total
-        } else {
-            offset.checked_add(total).context("文件大小溢出")?
-        };
+        let total =
+            if resp.status() == reqwest::StatusCode::PARTIAL_CONTENT && content_length.is_none() {
+                total
+            } else {
+                offset.checked_add(total).context("文件大小溢出")?
+            };
         let p = DownloadProgress::new(filename, total)?;
         if offset > 0 {
             p.set_position(offset);
@@ -152,16 +183,25 @@ pub async fn download_file(
             chunk = stream.next() => {
                 match chunk {
                     Some(Ok(data)) => {
-                        writer.write_all(&data).await?;
-                        writer.flush().await?;
+                        if let Err(e) = writer.write_all(&data).await {
+                            let _ = writer.flush().await;
+                            progress.abort();
+                            return Err(anyhow::anyhow!("写入文件失败: {}", e));
+                        }
                         progress.inc(data.len() as u64);
                     }
-                    Some(Err(e)) => return Err(anyhow::anyhow!("读取流失败: {}", e)),
+                    Some(Err(e)) => {
+                        let _ = writer.flush().await;
+                        progress.abort();
+                        return Err(anyhow::anyhow!("读取流失败: {}", e));
+                    }
                     None => break,
                 }
             }
             _ = &mut cancel_rx => {
+                let _ = writer.flush().await;
                 drop(writer);
+                progress.abort();
                 anyhow::bail!("下载被用户中断，.part 文件已保留，下次自动续传");
             }
         }
@@ -171,8 +211,14 @@ pub async fn download_file(
     writer.flush().await?;
     drop(writer);
 
-    tokio::fs::rename(&part, path).await
-        .map_err(|e| anyhow::anyhow!("重命名临时文件失败: {}", e))?;
+    // 尝试 rename（同文件系统即原子操作），失败则 copy+delete（跨文件系统）
+    if let Err(e) = tokio::fs::rename(&part, path).await {
+        info!("跨文件系统移动，先复制再删除临时文件...");
+        tokio::fs::copy(&part, path).await
+            .map_err(|ce| anyhow::anyhow!("复制失败 (rename 错误: {}): {}", e, ce))?;
+        tokio::fs::remove_file(&part).await
+            .map_err(|re| anyhow::anyhow!("删除临时文件失败: {}", re))?;
+    }
 
     Ok(())
 }
@@ -390,9 +436,17 @@ mod tests {
         tokio::fs::create_dir_all(&dir).await.unwrap();
         let path = dir.join("output.bin");
 
-        download_file(&client, &url, &path, Some(content.len() as u64), "")
-            .await
-            .unwrap();
+        download_file(
+            &client,
+            &url,
+            &path,
+            Some(content.len() as u64),
+            "",
+            "output.bin",
+            &part_path(&path),
+        )
+        .await
+        .unwrap();
 
         let result = tokio::fs::read(&path).await.unwrap();
         assert_eq!(result, content);
@@ -411,7 +465,9 @@ mod tests {
         tokio::fs::create_dir_all(&dir).await.unwrap();
         let path = dir.join("output.bin");
 
-        download_file(&client, &url, &path, None, "").await.unwrap();
+        download_file(&client, &url, &path, None, "", "output.bin", &part_path(&path))
+            .await
+            .unwrap();
 
         let result = tokio::fs::read(&path).await.unwrap();
         assert_eq!(result, content);
@@ -434,13 +490,26 @@ mod tests {
         let part = part_path(&path);
 
         // ---- 第一次下载：服务器中途断连，应失败 ----
-        let result = download_file(&client, &url, &path, Some(content.len() as u64), "").await;
+        let result = download_file(
+            &client,
+            &url,
+            &path,
+            Some(content.len() as u64),
+            "",
+            "output.bin",
+            &part_path(&path),
+        )
+        .await;
         assert!(result.is_err(), "服务器断连后 download_file 应返回错误");
 
         // ---- 验证 .part 文件已保留部分数据 ----
         assert!(part.exists(), "中断后 .part 文件应保留在磁盘上");
         let partial_size = tokio::fs::metadata(&part).await.unwrap().len();
-        assert!(partial_size > 0, "中断后 .part 应有数据, 实际: {}", partial_size);
+        assert!(
+            partial_size > 0,
+            "中断后 .part 应有数据, 实际: {}",
+            partial_size
+        );
         assert!(
             partial_size < content.len() as u64,
             "中断后 .part 应小于完整大小 {} vs {}",
@@ -456,9 +525,17 @@ mod tests {
         );
 
         // ---- 第二次下载：续传 ----
-        download_file(&client, &url, &path, Some(content.len() as u64), "")
-            .await
-            .unwrap();
+        download_file(
+            &client,
+            &url,
+            &path,
+            Some(content.len() as u64),
+            "",
+            "output.bin",
+            &part_path(&path),
+        )
+        .await
+        .unwrap();
 
         // ---- 验证最终文件完整 ----
         let result = tokio::fs::read(&path).await.unwrap();
@@ -484,7 +561,16 @@ mod tests {
         let part = part_path(&path);
 
         // 第一次：中断
-        let result = download_file(&client, &url, &path, Some(content.len() as u64), "").await;
+        let result = download_file(
+            &client,
+            &url,
+            &path,
+            Some(content.len() as u64),
+            "",
+            "output.bin",
+            &part_path(&path),
+        )
+        .await;
         assert!(result.is_err());
         assert!(part.exists());
         assert!(tokio::fs::metadata(&part).await.unwrap().len() > 0);
@@ -492,9 +578,17 @@ mod tests {
         // 第二次：服务器无视 Range，返回 200 OK + 全量数据
         // 此时 download_file 检测到 200（非 206），offset = 0，打开 File::create（截断）
         // 应完整下载覆盖
-        download_file(&client, &url, &path, Some(content.len() as u64), "")
-            .await
-            .unwrap();
+        download_file(
+            &client,
+            &url,
+            &path,
+            Some(content.len() as u64),
+            "",
+            "output.bin",
+            &part_path(&path),
+        )
+        .await
+        .unwrap();
 
         let result = tokio::fs::read(&path).await.unwrap();
         assert_eq!(result, content, "不支持 Range 的服务器应完整重新下载");
@@ -513,7 +607,7 @@ mod tests {
         tokio::fs::create_dir_all(&dir).await.unwrap();
         let path = dir.join("output.bin");
 
-        download_file(&client, &url, &path, None, "")
+        download_file(&client, &url, &path, None, "", "output.bin", &part_path(&path))
             .await
             .unwrap();
 
@@ -538,7 +632,7 @@ mod tests {
         tokio::fs::write(&part, content).await.unwrap();
 
         let total_size = Some(content.len() as u64);
-        download_file(&client, &url, &path, total_size, "")
+        download_file(&client, &url, &path, total_size, "", "output.bin", &part_path(&path))
             .await
             .unwrap();
 
@@ -561,7 +655,16 @@ mod tests {
         let path = dir.join("output.bin");
         let part = part_path(&path);
 
-        let result = download_file(&client, &url, &path, Some(content.len() as u64), "").await;
+        let result = download_file(
+            &client,
+            &url,
+            &path,
+            Some(content.len() as u64),
+            "",
+            "output.bin",
+            &part_path(&path),
+        )
+        .await;
         assert!(result.is_err());
 
         // 精确验证部分内容
@@ -573,9 +676,17 @@ mod tests {
         );
 
         // 续传后整体一致
-        download_file(&client, &url, &path, Some(content.len() as u64), "")
-            .await
-            .unwrap();
+        download_file(
+            &client,
+            &url,
+            &path,
+            Some(content.len() as u64),
+            "",
+            "output.bin",
+            &part_path(&path),
+        )
+        .await
+        .unwrap();
         let full = tokio::fs::read(&path).await.unwrap();
         assert_eq!(full, content);
 
@@ -595,20 +706,35 @@ mod tests {
         let path = dir.join("output.bin");
         let part = part_path(&path);
 
-        let result = download_file(&client, &url, &path, Some(content.len() as u64), "").await;
+        let result = download_file(
+            &client,
+            &url,
+            &path,
+            Some(content.len() as u64),
+            "",
+            "output.bin",
+            &part_path(&path),
+        )
+        .await;
         assert!(result.is_err());
         let partial_size = tokio::fs::metadata(&part).await.unwrap().len();
         assert!(partial_size > 0 && partial_size < content.len() as u64);
 
-        download_file(&client, &url, &path, Some(content.len() as u64), "")
-            .await
-            .unwrap();
+        download_file(
+            &client,
+            &url,
+            &path,
+            Some(content.len() as u64),
+            "",
+            "output.bin",
+            &part_path(&path),
+        )
+        .await
+        .unwrap();
 
         let result = tokio::fs::read(&path).await.unwrap();
         assert_eq!(result, content, "100KB 文件续传后内容必须一致");
 
         tokio::fs::remove_dir_all(&dir).await.unwrap();
     }
-
-
 }

@@ -29,13 +29,17 @@ impl EmbyClient {
         );
         headers.insert(
             "X-Emby-Client-Version",
-            reqwest::header::HeaderValue::from_static("0.0.6"),
+            reqwest::header::HeaderValue::from_static("0.0.7"),
         );
         headers.insert(
             "X-Emby-Device-Name",
             reqwest::header::HeaderValue::from_static("CLI"),
         );
-        Ok(Self { http, auth, headers })
+        Ok(Self {
+            http,
+            auth,
+            headers,
+        })
     }
 
     fn headers(&self) -> &reqwest::header::HeaderMap {
@@ -48,8 +52,8 @@ impl EmbyClient {
         query: &[(&str, &str)],
     ) -> anyhow::Result<T> {
         let base = format!("{}{}", self.auth.server_url, path);
-        let mut url = reqwest::Url::parse(&base)
-            .map_err(|e| anyhow::anyhow!("无效 URL {}: {}", base, e))?;
+        let mut url =
+            reqwest::Url::parse(&base).map_err(|e| anyhow::anyhow!("无效 URL {}: {}", base, e))?;
         url.query_pairs_mut().extend_pairs(query.iter().copied());
         let resp = self
             .http
@@ -61,7 +65,9 @@ impl EmbyClient {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let text = resp.text().await
+            let text = resp
+                .text()
+                .await
                 .unwrap_or_else(|e| format!("(读取错误响应失败: {})", e));
             return Err(anyhow::anyhow!("请求失败 ({}): {}", status, text));
         }
@@ -105,20 +111,34 @@ impl EmbyClient {
 
     pub async fn get_series_seasons(&self, series_id: &str) -> anyhow::Result<Vec<EmbyItem>> {
         let path = SERIES_SEASONS_PATH.replace("{}", series_id);
-        let resp: EmbyItems = self.get_json(&path, &[
-            ("UserId", &self.auth.user_id),
-            ("Fields", "SeriesName,IndexNumber"),
-        ]).await?;
+        let resp: EmbyItems = self
+            .get_json(
+                &path,
+                &[
+                    ("UserId", &self.auth.user_id),
+                    ("Fields", "SeriesName,IndexNumber"),
+                ],
+            )
+            .await?;
         Ok(resp.items)
     }
 
-    pub async fn get_child_items(&self, parent_id: &str, include_types: &str) -> anyhow::Result<Vec<EmbyItem>> {
+    pub async fn get_child_items(
+        &self,
+        parent_id: &str,
+        include_types: &str,
+    ) -> anyhow::Result<Vec<EmbyItem>> {
         let path = ITEMS_PATH.replace("{}", &self.auth.user_id);
-        let resp: EmbyItems = self.get_json(&path, &[
-            ("ParentId", parent_id),
-            ("IncludeItemTypes", include_types),
-            ("Fields", "SeriesName,ParentIndexNumber,IndexNumber"),
-        ]).await?;
+        let resp: EmbyItems = self
+            .get_json(
+                &path,
+                &[
+                    ("ParentId", parent_id),
+                    ("IncludeItemTypes", include_types),
+                    ("Fields", "SeriesName,ParentIndexNumber,IndexNumber"),
+                ],
+            )
+            .await?;
         Ok(resp.items)
     }
 
@@ -126,9 +146,11 @@ impl EmbyClient {
         let path = ITEM_PATH
             .replacen("{}", &self.auth.user_id, 1)
             .replacen("{}", item_id, 1);
-        self.get_json(&path, &[
-            ("Fields", "SeriesName,ParentIndexNumber,IndexNumber"),
-        ]).await
+        self.get_json(
+            &path,
+            &[("Fields", "SeriesName,ParentIndexNumber,IndexNumber")],
+        )
+        .await
     }
 
     pub fn build_stream_url(&self, item_id: &str, source_id: &str) -> String {
@@ -170,7 +192,10 @@ mod tests {
     fn build_stream_url_uses_static() {
         let client = test_client();
         let url = client.build_stream_url("item_42", "src_abc");
-        assert_eq!(url, "https://example.com/emby/Videos/item_42/stream?Static=true&MediaSourceId=src_abc");
+        assert_eq!(
+            url,
+            "https://example.com/emby/Videos/item_42/stream?Static=true&MediaSourceId=src_abc"
+        );
     }
 
     #[test]

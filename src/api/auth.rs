@@ -30,11 +30,7 @@ pub async fn authenticate(
     username: &str,
     password: &str,
 ) -> anyhow::Result<AuthInfo> {
-    let url = format!(
-        "{}{}",
-        server_url.trim_end_matches('/'),
-        AUTH_PATH
-    );
+    let url = format!("{}{}", server_url.trim_end_matches('/'), AUTH_PATH);
 
     let body = serde_json::json!({
         "Username": username,
@@ -46,7 +42,7 @@ pub async fn authenticate(
         .header("Content-Type", "application/json")
         .header(
             "X-Emby-Authorization",
-            "MediaBrowser Client=\"emby-dl\", Device=\"CLI\", DeviceId=\"emby-dl\", Version=\"0.0.6\"",
+            "MediaBrowser Client=\"emby-dl\", Device=\"CLI\", DeviceId=\"emby-dl\", Version=\"0.0.7\"",
         )
         .json(&body)
         .send()
@@ -55,7 +51,9 @@ pub async fn authenticate(
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let text = resp.text().await
+        let text = resp
+            .text()
+            .await
             .unwrap_or_else(|e| format!("(读取错误响应失败: {})", e));
         return Err(anyhow::anyhow!("认证失败 ({}): {}", status, text));
     }
@@ -94,7 +92,13 @@ mod tests {
 
     #[test]
     fn trim_server_url() {
-        assert_eq!("https://example.com/".trim_end_matches('/'), "https://example.com");
-        assert_eq!("https://example.com".trim_end_matches('/'), "https://example.com");
+        assert_eq!(
+            "https://example.com/".trim_end_matches('/'),
+            "https://example.com"
+        );
+        assert_eq!(
+            "https://example.com".trim_end_matches('/'),
+            "https://example.com"
+        );
     }
 }

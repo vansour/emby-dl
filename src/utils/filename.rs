@@ -48,7 +48,13 @@ mod tests {
     use super::*;
     use crate::api::items::EmbyItem;
 
-    fn make_item(name: &str, series: Option<&str>, season: Option<i32>, episode: Option<i32>, year: Option<i32>) -> EmbyItem {
+    fn make_item(
+        name: &str,
+        series: Option<&str>,
+        season: Option<i32>,
+        episode: Option<i32>,
+        year: Option<i32>,
+    ) -> EmbyItem {
         EmbyItem {
             id: "1".into(),
             name: name.into(),
@@ -102,7 +108,10 @@ mod tests {
     #[test]
     fn build_filename_movie_with_year() {
         let item = make_item("The Matrix", None, None, None, Some(1999));
-        assert_eq!(build_item_filename(&item, "mkv", None), "The Matrix (1999).mkv");
+        assert_eq!(
+            build_item_filename(&item, "mkv", None),
+            "The Matrix (1999).mkv"
+        );
     }
 
     #[test]
@@ -114,19 +123,28 @@ mod tests {
     #[test]
     fn build_filename_tv_episode() {
         let item = make_item("The One", Some("The Matrix"), Some(1), Some(4), None);
-        assert_eq!(build_item_filename(&item, "mkv", None), "The Matrix - S01E04 - The One.mkv");
+        assert_eq!(
+            build_item_filename(&item, "mkv", None),
+            "The Matrix - S01E04 - The One.mkv"
+        );
     }
 
     #[test]
     fn build_filename_tv_defaults_to_1() {
         let item = make_item("Pilot", Some("Stranger Things"), None, None, None);
-        assert_eq!(build_item_filename(&item, "mkv", None), "Stranger Things - S01E01 - Pilot.mkv");
+        assert_eq!(
+            build_item_filename(&item, "mkv", None),
+            "Stranger Things - S01E01 - Pilot.mkv"
+        );
     }
 
     #[test]
     fn build_filename_sanitizes_series_name() {
         let item = make_item("Episode 1", Some("Bad:Series/Name"), Some(2), Some(3), None);
-        assert_eq!(build_item_filename(&item, "avi", None), "Bad Series Name - S02E03 - Episode 1.avi");
+        assert_eq!(
+            build_item_filename(&item, "avi", None),
+            "Bad Series Name - S02E03 - Episode 1.avi"
+        );
     }
 
     #[test]
@@ -151,6 +169,9 @@ mod tests {
     fn build_filename_uses_custom_extension() {
         let item = make_item("Movie", None, None, None, Some(2024));
         assert_eq!(build_item_filename(&item, "mp4", None), "Movie (2024).mp4");
-        assert_eq!(build_item_filename(&item, "webm", None), "Movie (2024).webm");
+        assert_eq!(
+            build_item_filename(&item, "webm", None),
+            "Movie (2024).webm"
+        );
     }
 }

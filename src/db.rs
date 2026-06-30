@@ -105,13 +105,12 @@ impl AuthDb {
         let mut stmt = self
             .conn
             .prepare("SELECT server_url, username, password FROM credentials WHERE id = 1")?;
-        let row = stmt
-            .query_row([], |row| {
-                let server_url: String = row.get(0)?;
-                let username: String = row.get(1)?;
-                let blob: Vec<u8> = row.get(2)?;
-                Ok((server_url, username, blob))
-            });
+        let row = stmt.query_row([], |row| {
+            let server_url: String = row.get(0)?;
+            let username: String = row.get(1)?;
+            let blob: Vec<u8> = row.get(2)?;
+            Ok((server_url, username, blob))
+        });
         let row = match row {
             Ok(row) => Some(row),
             Err(rusqlite::Error::QueryReturnedNoRows) => None,
@@ -119,9 +118,8 @@ impl AuthDb {
         };
         match row {
             Some((server_url, username, blob)) => {
-                let password = decrypt_credential(&blob, &self.key).map_err(|e| {
-                    anyhow::anyhow!("解密凭据失败，请重新运行 --auth: {}", e)
-                })?;
+                let password = decrypt_credential(&blob, &self.key)
+                    .map_err(|e| anyhow::anyhow!("解密凭据失败，请重新运行 --auth: {}", e))?;
                 Ok(Some(StoredCredentials {
                     server_url,
                     username,
@@ -149,19 +147,16 @@ impl AuthDb {
     }
 
     pub fn load_auth(&self) -> anyhow::Result<Option<StoredAuth>> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT server_url, username, access_token, user_id FROM auth_tokens WHERE id = 1",
-            )?;
-        let row = stmt
-            .query_row([], |row| {
-                let server_url: String = row.get(0)?;
-                let username: String = row.get(1)?;
-                let blob: Vec<u8> = row.get(2)?;
-                let user_id: String = row.get(3)?;
-                Ok((server_url, username, blob, user_id))
-            });
+        let mut stmt = self.conn.prepare(
+            "SELECT server_url, username, access_token, user_id FROM auth_tokens WHERE id = 1",
+        )?;
+        let row = stmt.query_row([], |row| {
+            let server_url: String = row.get(0)?;
+            let username: String = row.get(1)?;
+            let blob: Vec<u8> = row.get(2)?;
+            let user_id: String = row.get(3)?;
+            Ok((server_url, username, blob, user_id))
+        });
         let row = match row {
             Ok(row) => Some(row),
             Err(rusqlite::Error::QueryReturnedNoRows) => None,
@@ -169,9 +164,8 @@ impl AuthDb {
         };
         match row {
             Some((server_url, username, blob, user_id)) => {
-                let access_token = decrypt_credential(&blob, &self.key).map_err(|e| {
-                    anyhow::anyhow!("解密 token 失败，请重新运行 --auth: {}", e)
-                })?;
+                let access_token = decrypt_credential(&blob, &self.key)
+                    .map_err(|e| anyhow::anyhow!("解密 token 失败，请重新运行 --auth: {}", e))?;
                 Ok(Some(StoredAuth {
                     server_url,
                     username,
@@ -224,12 +218,12 @@ fn load_or_create_key() -> anyhow::Result<[u8; 32]> {
 }
 
 fn encrypt(plaintext: &str, key: &[u8; 32]) -> anyhow::Result<Vec<u8>> {
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| anyhow::anyhow!("密钥初始化失败: {}", e))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| anyhow::anyhow!("密钥初始化失败: {}", e))?;
     let mut nonce_bytes = [0u8; 12];
     fill(&mut nonce_bytes)?;
-    let nonce = Nonce::try_from(&nonce_bytes[..])
-        .map_err(|_| anyhow::anyhow!("nonce 初始化失败"))?;
+    let nonce =
+        Nonce::try_from(&nonce_bytes[..]).map_err(|_| anyhow::anyhow!("nonce 初始化失败"))?;
     let ciphertext = cipher
         .encrypt(&nonce, plaintext.as_bytes())
         .map_err(|e| anyhow::anyhow!("加密失败: {}", e))?;
@@ -243,10 +237,9 @@ fn decrypt(data: &[u8], key: &[u8; 32]) -> anyhow::Result<String> {
         anyhow::bail!("无效的加密数据");
     }
     let (nonce_bytes, ciphertext) = data.split_at(12);
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| anyhow::anyhow!("密钥初始化失败: {}", e))?;
-    let nonce = Nonce::try_from(nonce_bytes)
-        .map_err(|_| anyhow::anyhow!("nonce 初始化失败"))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| anyhow::anyhow!("密钥初始化失败: {}", e))?;
+    let nonce = Nonce::try_from(nonce_bytes).map_err(|_| anyhow::anyhow!("nonce 初始化失败"))?;
     let plaintext = cipher
         .decrypt(&nonce, ciphertext)
         .map_err(|_| anyhow::anyhow!("解密失败（数据可能已损坏）"))?;
@@ -338,8 +331,10 @@ mod tests {
     #[test]
     fn test_replace_credentials() {
         let db = AuthDb::open_in_memory_with_key(test_key()).unwrap();
-        db.save_credentials("https://old.com", "old", "old_pass").unwrap();
-        db.save_credentials("https://new.com", "new", "new_pass").unwrap();
+        db.save_credentials("https://old.com", "old", "old_pass")
+            .unwrap();
+        db.save_credentials("https://new.com", "new", "new_pass")
+            .unwrap();
         let cred = db.load_credentials().unwrap().unwrap();
         assert_eq!(cred.server_url, "https://new.com");
         assert_eq!(cred.username, "new");
@@ -367,7 +362,8 @@ mod tests {
     #[test]
     fn test_auth_and_credentials_independent() {
         let db = AuthDb::open_in_memory_with_key(test_key()).unwrap();
-        db.save_credentials("https://srv", "bob", "bob_pass").unwrap();
+        db.save_credentials("https://srv", "bob", "bob_pass")
+            .unwrap();
         assert!(db.load_auth().unwrap().is_none());
         db.save_auth("https://srv", "bob", "tok", "uid").unwrap();
         let cred = db.load_credentials().unwrap().unwrap();

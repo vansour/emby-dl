@@ -7,9 +7,9 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use tracing::{error, info};
 use db::AuthDb;
 use download::DownloadOptions;
+use tracing::{error, info};
 
 #[derive(Parser)]
 #[command(name = "emby-dl", version, about = "从 Emby 服务器下载视频")]
@@ -29,6 +29,10 @@ struct Cli {
     /// 禁用断点续传
     #[arg(long)]
     no_resume: bool,
+
+    /// 下载缓存目录（默认: 系统缓存目录/emby-dl/download-cache）
+    #[arg(long)]
+    cache_dir: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -95,6 +99,8 @@ enum Commands {
         #[command(subcommand)]
         action: ProxyAction,
     },
+    /// 清理下载缓存（.part 临时文件）
+    CleanCache,
 }
 
 #[derive(Subcommand)]
@@ -126,23 +132,50 @@ async fn run() -> anyhow::Result<()> {
                     let valid_schemes = ["http://", "https://", "socks5://", "socks5h://"];
                     let has_valid_scheme = valid_schemes.iter().any(|s| url.starts_with(s));
                     if !has_valid_scheme {
-                        anyhow::bail!("无效的代理地址: 缺少协议头，应使用 http://、https://、socks5:// 或 socks5h://");
+                        anyhow::bail!(
+                            "无效的代理地址: 缺少协议头，应使用 http://、https://、socks5:// 或 socks5h://"
+                        );
                     }
                     reqwest::Proxy::all(url)
                         .map_err(|e| anyhow::anyhow!("无效的代理地址: {}", e))?;
                     db.save_proxy(url)?;
                     info!("代理已保存: {}", url);
                 }
-                ProxyAction::Show => {
-                    match db.load_proxy()? {
-                        Some(url) => info!("当前代理: {}", url),
-                        None => info!("未设置代理"),
-                    }
-                }
+                ProxyAction::Show => match db.load_proxy()? {
+                    Some(url) => info!("当前代理: {}", url),
+                    None => info!("未设置代理"),
+                },
                 ProxyAction::Remove => {
                     db.remove_proxy()?;
                     info!("代理已清除");
                 }
+            }
+            return Ok(());
+        }
+        Commands::CleanCache => {
+            let cache_dir = default_cache_dir();
+            if !cache_dir.exists() {
+                info!("缓存目录不存在: {}", cache_dir.display());
+                return Ok(());
+            }
+            let mut total_size = 0u64;
+            let mut count = 0u32;
+            let mut read_dir = tokio::fs::read_dir(&cache_dir).await?;
+            while let Some(entry) = read_dir.next_entry().await? {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("part") {
+                    if let Ok(meta) = entry.metadata().await {
+                        total_size += meta.len();
+                    }
+                    tokio::fs::remove_file(&path).await?;
+                    count += 1;
+                }
+            }
+            if count == 0 {
+                info!("缓存目录已干净 (无 .part 文件)");
+            } else {
+                let size_mb = total_size as f64 / (1024.0 * 1024.0);
+                info!("已清理 {} 个 .part 文件，释放 {:.2} MB", count, size_mb);
             }
             return Ok(());
         }
@@ -175,7 +208,12 @@ async fn run() -> anyhow::Result<()> {
             let http = http_builder.build()?;
 
             let auth_info = api::auth::authenticate(&http, &url, &username, &password).await?;
-            db.save_auth(&url, &auth_info.username, &auth_info.access_token, &auth_info.user_id)?;
+            db.save_auth(
+                &url,
+                &auth_info.username,
+                &auth_info.access_token,
+                &auth_info.user_id,
+            )?;
             info!("认证成功，已保存到数据库 (用户: {})", auth_info.username);
             return Ok(());
         }
@@ -202,21 +240,32 @@ async fn run() -> anyhow::Result<()> {
             username: stored.username,
         }
     } else {
-        let cred = db.load_credentials()?
+        let cred = db
+            .load_credentials()?
             .ok_or_else(|| anyhow::anyhow!("未找到认证信息，请先运行 emby-dl auth"))?;
-        let info = api::auth::authenticate(&http, &cred.server_url, &cred.username, &cred.password).await?;
-        db.save_auth(&cred.server_url, &info.username, &info.access_token, &info.user_id)?;
+        let info = api::auth::authenticate(&http, &cred.server_url, &cred.username, &cred.password)
+            .await?;
+        db.save_auth(
+            &cred.server_url,
+            &info.username,
+            &info.access_token,
+            &info.user_id,
+        )?;
         info!("登录成功: {} (用户: {})", cred.server_url, info.username);
         info
     };
 
     let client = api::client::EmbyClient::new(http, auth_info)?;
 
+    let cache_dir = cli.cache_dir.unwrap_or_else(default_cache_dir);
     let opts = DownloadOptions {
         output_dir: cli.output,
         overwrite: cli.overwrite,
         dry_run: cli.dry_run,
         no_resume: cli.no_resume,
+        batch_current: None,
+        batch_total: None,
+        cache_dir: Some(cache_dir),
     };
 
     match command {
@@ -301,11 +350,15 @@ async fn run() -> anyhow::Result<()> {
                 info!("未找到匹配结果");
                 return Ok(());
             }
-            info!("找到 {} 个条目", items.len());
+            let total = items.len();
+            info!("找到 {} 个条目", total);
             if !opts.dry_run {
                 info!("开始下载...");
-                for item in &items {
-                    if let Err(e) = download::download_item(&client, item, &opts).await {
+                for (i, item) in items.iter().enumerate() {
+                    let mut batch_opts = opts.clone();
+                    batch_opts.batch_current = Some(i + 1);
+                    batch_opts.batch_total = Some(total);
+                    if let Err(e) = download::download_item(&client, item, &batch_opts).await {
                         error!("下载失败 [{}]: {}", item.name, e);
                     }
                 }
@@ -326,7 +379,7 @@ async fn run() -> anyhow::Result<()> {
             info!("{}", url);
         }
 
-        Commands::Auth | Commands::Proxy { .. } => unreachable!(),
+        Commands::Auth | Commands::Proxy { .. } | Commands::CleanCache => unreachable!(),
     }
 
     Ok(())
@@ -387,6 +440,13 @@ fn print_item(item: &api::items::EmbyItem) {
             .unwrap_or_default();
         info!("  {} [{}] {}{}", type_tag, item.id, item.name, year);
     }
+}
+
+fn default_cache_dir() -> PathBuf {
+    let mut path = dirs::cache_dir().unwrap_or_else(|| PathBuf::from("."));
+    path.push("emby-dl");
+    path.push("download-cache");
+    path
 }
 
 fn main() {

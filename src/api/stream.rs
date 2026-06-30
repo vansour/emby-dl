@@ -10,7 +10,7 @@ struct PlaybackInfoResponse {
 }
 
 impl EmbyClient {
-    pub async fn get_playback_info(&self, item_id: &str) -> anyhow::Result< Vec<MediaSourceInfo>> {
+    pub async fn get_playback_info(&self, item_id: &str) -> anyhow::Result<Vec<MediaSourceInfo>> {
         let path = PLAYBACK_INFO_PATH.replace("{}", item_id);
         let query = &[("UserId", &self.auth.user_id as &str)];
         let resp: PlaybackInfoResponse = self.get_json(&path, query).await?;

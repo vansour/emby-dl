@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use crate::api::client::EmbyClient;
-use tracing::{error, info};
 use crate::api::items::{EmbyItem, MediaSourceInfo};
 use crate::utils::filename;
+use tracing::{error, info};
 
 #[derive(Clone)]
 pub struct DownloadOptions {
@@ -15,6 +15,9 @@ pub struct DownloadOptions {
     pub overwrite: bool,
     pub dry_run: bool,
     pub no_resume: bool,
+    pub batch_current: Option<usize>,
+    pub batch_total: Option<usize>,
+    pub cache_dir: Option<PathBuf>,
 }
 
 static USED_NAMES: Mutex<Option<HashSet<String>>> = Mutex::new(None);
@@ -37,21 +40,21 @@ pub fn build_download_url(client: &EmbyClient, item_id: &str, source: &MediaSour
 
 fn category_folder(item_type: Option<&str>) -> Option<&'static str> {
     match item_type {
-        Some("Movie")       => Some("电影"),
-        Some("BoxSet")      => Some("电影"),
-        Some("Episode")     => Some("剧集"),
-        Some("Season")      => Some("剧集"),
-        Some("Series")      => Some("剧集"),
+        Some("Movie") => Some("电影"),
+        Some("BoxSet") => Some("电影"),
+        Some("Episode") => Some("剧集"),
+        Some("Season") => Some("剧集"),
+        Some("Series") => Some("剧集"),
         Some("MusicArtist") => Some("音乐"),
-        Some("MusicAlbum")  => Some("音乐"),
-        Some("Audio")       => Some("音乐"),
-        Some("Trailer")     => Some("预告"),
-        Some("Book")        => Some("书籍"),
-        Some("Video")       => Some("视频"),
-        Some("Photo")       => Some("照片"),
-        Some("PhotoAlbum")  => Some("照片"),
-        Some("Program")     => Some("节目"),
-        _                   => None,
+        Some("MusicAlbum") => Some("音乐"),
+        Some("Audio") => Some("音乐"),
+        Some("Trailer") => Some("预告"),
+        Some("Book") => Some("书籍"),
+        Some("Video") => Some("视频"),
+        Some("Photo") => Some("照片"),
+        Some("PhotoAlbum") => Some("照片"),
+        Some("Program") => Some("节目"),
+        _ => None,
     }
 }
 
@@ -100,7 +103,10 @@ pub async fn download_item(
                 let season_number = season.index_number;
                 let episodes = match client.get_child_items(&season.id, "Episode").await {
                     Ok(v) => v,
-                    Err(e) => { error!("获取季剧集失败: {}", e); continue; }
+                    Err(e) => {
+                        error!("获取季剧集失败: {}", e);
+                        continue;
+                    }
                 };
                 for mut ep in episodes {
                     if ep.parent_index_number.is_none() {
@@ -145,7 +151,11 @@ async fn download_single(
 
     let container = extract_container(&source);
     let stream_url = build_download_url(client, &item.id, &source);
-    let filename = deduplicate_filename(&filename::build_item_filename(item, &container, series_name));
+    let filename = deduplicate_filename(&filename::build_item_filename(
+        item,
+        &container,
+        series_name,
+    ));
     let season_dir = format!("Season {:02}", item.parent_index_number.unwrap_or(1));
     let sn = item.series_name.as_deref().or(series_name);
     let cat = category_folder(item.item_type.as_deref());
@@ -155,8 +165,7 @@ async fn download_single(
             if let Some(c) = cat {
                 base = base.join(c);
             }
-            base
-                .join(filename::sanitize(name))
+            base.join(filename::sanitize(name))
                 .join(&season_dir)
                 .join(&filename)
         }
@@ -188,25 +197,38 @@ async fn download_single(
         }
     }
 
+    let display_name = if let (Some(cur), Some(total)) = (opts.batch_current, opts.batch_total) {
+        format!("[{}/{}] {}", cur, total, filename)
+    } else {
+        filename.clone()
+    };
+
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
 
-    // --no-resume: 删除 .part 临时文件，强制重新下载
-    let part_path = direct::part_path(&dest);
-    if opts.no_resume || opts.overwrite {
-        if part_path.exists() {
-            tokio::fs::remove_file(&part_path).await?;
-        }
+    // --cache-dir: .part 写入缓存目录避免云存储争锁
+    let part_path = match &opts.cache_dir {
+        Some(cache) => direct::part_path_in(cache, &dest),
+        None => direct::part_path(&dest),
+    };
+    if (opts.no_resume || opts.overwrite) && part_path.exists() {
+        tokio::fs::remove_file(&part_path).await?;
+    }
+    // 确保缓存目录存在
+    if let Some(parent) = part_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
     }
 
-    info!("下载: {}", filename);
+    info!("下载: {}", display_name);
     direct::download_file(
         &client.http,
         &stream_url,
         &dest,
         source.size.map(|s| s as u64),
         &client.auth.access_token,
+        &display_name,
+        &part_path,
     )
     .await?;
 
