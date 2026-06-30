@@ -188,12 +188,20 @@ emby-dl login
 
 ## 数据存储
 
-| 文件 | 位置 | 说明 |
-|---|---|---|
-| `auth.db` | `~/.config/emby-dl/auth.db` | 加密的认证信息和代理配置 |
-| `key` | `~/.config/emby-dl/key` | AES-256-GCM 密钥（仅本地，不外传） |
+配置文件存放路径因操作系统而异：
 
-首次运行 `auth` 自动创建以上文件。密钥为 256 位随机数，权限设为 `600`（仅当前用户可读）。
+| 系统 | 路径 |
+|---|---|
+| Linux | `~/.config/emby-dl/` (`$XDG_CONFIG_HOME`) |
+| macOS | `~/Library/Application Support/emby-dl/` |
+| Windows | `%APPDATA%\emby-dl\` (`C:\Users\<用户>\AppData\Roaming\emby-dl\`) |
+
+| 文件 | 说明 |
+|---|---|
+| `auth.db` | 加密的认证信息和代理配置 |
+| `key` | AES-256-GCM 密钥（256 位随机数，权限 `600`，仅当前用户可读） |
+
+首次运行 `auth` 自动创建以上文件。
 
 ## 技术栈
 
