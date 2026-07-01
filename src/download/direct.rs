@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::Context;
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
@@ -144,25 +143,39 @@ pub async fn download_file(
         0
     };
 
-    let progress = if let Some(total) = final_total {
-        // 206 with Content-Length: total is remaining bytes, compute full size
-        let full_size =
-            if resp.status() == reqwest::StatusCode::PARTIAL_CONTENT && content_length.is_some() {
-                offset.checked_add(total).context("文件大小溢出")?
+    // 计算预期完整大小（用于进度条和尾部错误判断）
+    let expected_size = final_total.map(|total| {
+        if resp.status() == reqwest::StatusCode::PARTIAL_CONTENT && content_length.is_some() {
+            offset.checked_add(total).expect("文件大小溢出")
+        } else {
+            total
+        }
+    });
+    if let Some(full) = expected_size
+        && offset > full
+    {
+        anyhow::bail!(
+            "已下载的字节数 ({}) 超过预期文件大小 ({}), 请删除 .part 文件后重试",
+            offset,
+            full
+        );
+    }
+
+    let progress = if let Some(full) = expected_size {
+        let remaining = full - offset;
+        let bar_msg = if offset > 0 {
+            let extra = if offset >= 1073741824 {
+                format!("{:.2} GiB", offset as f64 / 1073741824.0)
+            } else if offset >= 1048576 {
+                format!("{:.1} MiB", offset as f64 / 1048576.0)
             } else {
-                total
+                format!("{} B", offset)
             };
-        if offset > full_size {
-            anyhow::bail!(
-                "已下载的字节数 ({}) 超过预期文件大小 ({}), 请删除 .part 文件后重试",
-                offset,
-                full_size
-            );
-        }
-        let p = DownloadProgress::new(filename, full_size)?;
-        if offset > 0 {
-            p.set_position(offset);
-        }
+            format!("{} (+{} 续传)", filename, extra)
+        } else {
+            filename.to_string()
+        };
+        let p = DownloadProgress::new(&bar_msg, remaining)?;
         ProgressType::Known(p)
     } else {
         ProgressType::Unknown(DownloadProgressUnknown::new(filename)?)
@@ -189,6 +202,14 @@ pub async fn download_file(
                     }
                     Some(Err(e)) => {
                         let _ = writer.flush().await;
+                        // 数据已全部接收完毕，仅连接关闭异常，视为完成
+                        let written = tokio::fs::metadata(&part).await
+                            .ok().map(|m| m.len()).unwrap_or(0);
+                        if let Some(expected) = expected_size
+                            && written >= expected
+                        {
+                            break;
+                        }
                         progress.abort();
                         return Err(anyhow::anyhow!("读取流失败: {}", e));
                     }

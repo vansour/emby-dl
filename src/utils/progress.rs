@@ -34,10 +34,6 @@ impl DownloadProgress {
         self.bar.inc(n);
     }
 
-    pub fn set_position(&self, pos: u64) {
-        self.bar.set_position(pos);
-    }
-
     pub fn finish(&self) {
         self.bar
             .finish_with_message(format!("{} ✓", self.bar.message()));
@@ -89,7 +85,6 @@ mod tests {
     fn test_download_progress_new() {
         let p = DownloadProgress::new("test.mkv", 1000).unwrap();
         p.inc(100);
-        p.set_position(200);
         p.finish();
     }
 

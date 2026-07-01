@@ -1,20 +1,20 @@
 {
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "从 Emby 媒体服务器下载视频的命令行工具",
   "homepage": "https://github.com/vansour/emby-dl",
   "license": "Unknown",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/vansour/emby-dl/releases/download/v0.0.10/emby-dl-x86_64-pc-windows-msvc.zip",
-      "hash": "a93ff3d24dc2efa7268adb208dc473a9b842e876754e00a58b32e5794018b35a"
+      "url": "https://github.com/vansour/emby-dl/releases/download/v0.0.11/emby-dl-x86_64-pc-windows-msvc.zip",
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000"
     },
     "32bit": {
-      "url": "https://github.com/vansour/emby-dl/releases/download/v0.0.10/emby-dl-i686-pc-windows-msvc.zip",
-      "hash": "64f7e92d397347514d13db9174552bc19f452cdb7200f1e28f6651f46c68d605"
+      "url": "https://github.com/vansour/emby-dl/releases/download/v0.0.11/emby-dl-i686-pc-windows-msvc.zip",
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000"
     },
     "arm64": {
-      "url": "https://github.com/vansour/emby-dl/releases/download/v0.0.10/emby-dl-aarch64-pc-windows-msvc.zip",
-      "hash": "f73d0b5c9099a32bab01013471bffd279229272bb49eb5b23f4017f0894c7630"
+      "url": "https://github.com/vansour/emby-dl/releases/download/v0.0.11/emby-dl-aarch64-pc-windows-msvc.zip",
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000"
     }
   },
   "bin": "emby-dl.exe",
