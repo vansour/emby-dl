@@ -144,25 +144,22 @@ pub async fn download_file(
         0
     };
 
-    if let Some(total) = final_total
-        && offset > total
-    {
-        anyhow::bail!(
-            "已下载的字节数 ({}) 超过预期文件大小 ({}), 请删除 .part 文件后重试",
-            offset,
-            total
-        );
-    }
-
     let progress = if let Some(total) = final_total {
-        // 206 without Content-Length: total_size is the full file size, not remaining bytes
-        let total =
-            if resp.status() == reqwest::StatusCode::PARTIAL_CONTENT && content_length.is_none() {
-                total
-            } else {
+        // 206 with Content-Length: total is remaining bytes, compute full size
+        let full_size =
+            if resp.status() == reqwest::StatusCode::PARTIAL_CONTENT && content_length.is_some() {
                 offset.checked_add(total).context("文件大小溢出")?
+            } else {
+                total
             };
-        let p = DownloadProgress::new(filename, total)?;
+        if offset > full_size {
+            anyhow::bail!(
+                "已下载的字节数 ({}) 超过预期文件大小 ({}), 请删除 .part 文件后重试",
+                offset,
+                full_size
+            );
+        }
+        let p = DownloadProgress::new(filename, full_size)?;
         if offset > 0 {
             p.set_position(offset);
         }
