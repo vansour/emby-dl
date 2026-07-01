@@ -221,8 +221,7 @@ async fn run() -> anyhow::Result<()> {
     }
 
     let mut http_builder = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(30))
-        .timeout(std::time::Duration::from_secs(3600));
+        .connect_timeout(std::time::Duration::from_secs(30));
     if let Some(proxy_url) = db.load_proxy()? {
         let proxy = reqwest::Proxy::all(&proxy_url)
             .map_err(|e| anyhow::anyhow!("无效的代理地址: {}", e))?;
@@ -258,6 +257,7 @@ async fn run() -> anyhow::Result<()> {
     let client = api::client::EmbyClient::new(http, auth_info)?;
 
     let cache_dir = cli.cache_dir.unwrap_or_else(default_cache_dir);
+    info!("使用缓存目录: {}", cache_dir.display());
     let opts = DownloadOptions {
         output_dir: cli.output,
         overwrite: cli.overwrite,
