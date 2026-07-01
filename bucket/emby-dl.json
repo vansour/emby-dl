@@ -6,15 +6,15 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/vansour/emby-dl/releases/download/v0.0.9/emby-dl-x86_64-pc-windows-msvc.zip",
-      "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+      "hash": "32edf4768c855320f4d7053f0ab4964bc6a3eff799f04c95329960463b56f719"
     },
     "32bit": {
       "url": "https://github.com/vansour/emby-dl/releases/download/v0.0.9/emby-dl-i686-pc-windows-msvc.zip",
-      "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+      "hash": "91edd475d7eb7c68818358986769cf351da2b08d0e49a6d2d52427463dd9e208"
     },
     "arm64": {
       "url": "https://github.com/vansour/emby-dl/releases/download/v0.0.9/emby-dl-aarch64-pc-windows-msvc.zip",
-      "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+      "hash": "c1128cde0cd165b84eb05e0ad0966dbe8094361e81365dbdbfe24b8fc7a5eb2b"
     }
   },
   "bin": "emby-dl.exe",
