@@ -7,11 +7,11 @@ class EmbyDl < Formula
   on_macos do
     on_intel do
       url "https://github.com/vansour/emby-dl/releases/download/v#{version}/emby-dl-x86_64-apple-darwin.tar.gz"
-      sha256 "89cf53748943c4b9daf9f61adfcdcb3ac1e2a06415087c3c2edf9ab68e95b8dc"
+      sha256 "fa62068bebb346af69ae6f4c9592f75f3a382d862f595392891b8280615a7327"
     end
     on_arm do
       url "https://github.com/vansour/emby-dl/releases/download/v#{version}/emby-dl-aarch64-apple-darwin.tar.gz"
-      sha256 "e4036b02e823e7941a59af5f30278338f0b8899264fa0eec66ffbcaf2045f78d"
+      sha256 "930eacddc8a3a00b74d1abbc81db12667dcf5ac8265233b243183fd429e80984"
     end
   end
 
