@@ -221,18 +221,37 @@ async fn download_single(
     }
 
     info!("下载: {}", display_name);
-    direct::download_file(
-        &client.http,
-        &stream_url,
-        &dest,
-        source.size.map(|s| s as u64),
-        &client.auth.access_token,
-        &display_name,
-        &part_path,
-    )
-    .await?;
 
-    Ok(())
+    // 遇到网络错误自动重试（.part 保留用于续传最多 3 次）
+    let max_retries = 3;
+    let mut last_err = None;
+    for attempt in 1..=max_retries {
+        match direct::download_file(
+            &client.http,
+            &stream_url,
+            &dest,
+            source.size.map(|s| s as u64),
+            &client.auth.access_token,
+            &display_name,
+            &part_path,
+        )
+        .await
+        {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                if attempt < max_retries {
+                    error!(
+                        "下载失败 (第{}/{} 次), 10 秒后重试: {}",
+                        attempt, max_retries, e
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                }
+                last_err = Some(e);
+            }
+        }
+    }
+
+    Err(last_err.unwrap())
 }
 
 #[cfg(test)]
